@@ -6,7 +6,7 @@ import { useAuth } from '../lib/auth-context';
 import { 
   Plus, Search, Calendar, Mail, Phone, Building, Briefcase, 
   Trash2, Eye, X, Image as ImageIcon, FileText, Send, Sparkles, AlertCircle,
-  Loader2
+  Loader2, MessageSquare
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -758,13 +758,31 @@ export function ContactsPage() {
                           </button>
                         </div>
 
-                        <div className="flex gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <a 
                             href={`mailto:${selectedContact.email || ''}?subject=${encodeURIComponent(followupDraft.split('\n')[0].replace('Subject: ', ''))}&body=${encodeURIComponent(followupDraft.split('\n').slice(2).join('\n'))}`}
-                            className="flex-1 btn-primary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow"
+                            className="btn-primary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center font-semibold"
+                          >
+                            <Mail size={12} />
+                            Email
+                          </a>
+                          
+                          <a 
+                            href={`https://wa.me/${selectedContact.phone ? selectedContact.phone.replace(/[^0-9+]/g, '') : ''}?text=${encodeURIComponent(followupDraft)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-secondary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center bg-green-50 text-green-700 border-green-200 hover:bg-green-100 font-semibold cursor-pointer"
+                          >
+                            <MessageSquare size={12} />
+                            WhatsApp
+                          </a>
+
+                          <a 
+                            href={`sms:${selectedContact.phone ? selectedContact.phone.replace(/[^0-9+]/g, '') : ''}?body=${encodeURIComponent(followupDraft)}`}
+                            className="btn-secondary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-semibold"
                           >
                             <Send size={12} />
-                            Send via Email
+                            SMS
                           </a>
                         </div>
                       </div>
