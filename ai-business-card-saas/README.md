@@ -1,16 +1,66 @@
-# React + Vite
+# AI Business Card — Follow-up SaaS
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Lightweight React + Vite app to capture business cards, parse contact details with OCR + AI, persist contacts to Supabase, and help automate follow-ups.
 
-Currently, two official plugins are available:
+**Status:** Work in progress — core capture, parsing, and Supabase integration implemented.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**Key Features**
+- Capture via camera or upload images
+- OCR using Tesseract.js and client-side image compression
+- AI parser to extract name, email, phone, company, and notes
+- Auth and storage with Supabase
+- React + Vite + Tailwind UI
 
-## React Compiler
+**Tech stack**
+- Frontend: React, Vite, TypeScript
+- Storage & Auth: Supabase
+- OCR: Tesseract.js
+- Forms: react-hook-form
+- State & data fetching: @tanstack/react-query
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Quick start
 
-## Expanding the ESLint configuration
+Requirements: Node 18+ and npm (or yarn/pnpm).
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. Install dependencies
+
+```bash
+npm install
+```
+
+2. Create a local env file `.env.local` in the project root with Supabase keys:
+
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+3. Run the dev server
+
+```bash
+npm run dev
+```
+
+4. Open http://localhost:5173
+
+## Available scripts
+- `npm run dev` — starts Vite dev server
+- `npm run build` — build for production
+- `npm run preview` — preview production build
+- `npm run lint` — run ESLint
+
+## Environment
+This app expects the following environment variables (see `src/lib/supabase.ts`):
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+## Contributing
+Contributions welcome. Open an issue or submit a PR with concise changes.
+
+## Where to look in the code
+- Capture & upload components: `src/components/CardCapture`
+- Supabase helpers: `src/lib/supabase.ts`
+- AI parsing utilities: `src/utils/ai-parser.ts`
+
+If you'd like, I can further expand the README with deployment steps, env examples, or architecture diagrams.
