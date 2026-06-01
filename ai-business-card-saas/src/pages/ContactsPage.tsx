@@ -333,14 +333,14 @@ export function ContactsPage() {
 
       {/* Filters & Search */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full sm:w-80 flex items-center">
-          <Search size={16} className="absolute left-3 text-gray-400 pointer-events-none" />
+        <div className="flex items-center gap-2.5 w-full sm:w-80 px-3 py-2 bg-white border border-gray-200 rounded-md focus-within:ring-2 focus-within:ring-brand-400/30 focus-within:border-brand-400 transition-all duration-150 shadow-sm">
+          <Search size={16} className="text-gray-400 shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by name, company, email..."
-            className="input pl-9"
+            className="w-full text-sm bg-transparent border-0 p-0 focus:ring-0 focus:outline-none placeholder:text-gray-400 font-medium"
           />
         </div>
 
