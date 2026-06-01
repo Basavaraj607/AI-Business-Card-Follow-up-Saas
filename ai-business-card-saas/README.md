@@ -64,3 +64,17 @@ Contributions welcome. Open an issue or submit a PR with concise changes.
 - AI parsing utilities: `src/utils/ai-parser.ts`
 
 If you'd like, I can further expand the README with deployment steps, env examples, or architecture diagrams.
+
+## Optional Python requirements
+The repository includes an optional [requirements.txt](requirements.txt) for users who want to run server-side AI helpers or local model inference. These are not required for the React app to run, but are useful for running Python-based tooling or experiments.
+
+Basic install (recommended in a virtualenv):
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # on Windows: .venv\Scripts\activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+If you want help adding a small server example that uses these packages (for example, a small OpenAI proxy or local transformer inference), I can scaffold it.
