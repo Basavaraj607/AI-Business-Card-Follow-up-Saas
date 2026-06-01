@@ -35,7 +35,7 @@ export function SettingsPage() {
     setTestResult(null);
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`,
         {
           method: 'POST',
           headers: {
@@ -150,7 +150,7 @@ export function SettingsPage() {
           {testResult === 'success' && (
             <div className="p-3 bg-green-50 border border-green-100 rounded-lg flex items-center gap-2 text-sm text-green-800">
               <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-              <span>Connection active. Card parsing will use Gemini 1.5 Flash.</span>
+              <span>Connection active. Card parsing will use Gemini 2.5 Flash.</span>
             </div>
           )}
 
