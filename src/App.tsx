@@ -6,7 +6,6 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ContactsPage } from './pages/ContactsPage'
 import { UploadPage } from './pages/UploadPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import AppLayout from './layouts/AppLayout'
 import ProtectedRoute from './routes/ProtectedRoute'
 
@@ -16,7 +15,6 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
           
           {/* Protected App Shell */}
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

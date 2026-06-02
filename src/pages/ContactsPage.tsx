@@ -276,83 +276,23 @@ export function ContactsPage() {
     }
   };
 
-  // Live follow-up generator utilizing Gemini API when key is present, fallback to simulation
-  const generateFollowupDraft = async (contact: ContactRecord, tone: 'casual' | 'formal' | 'sales') => {
+  // Dummy followup generator utilizing local state & prompts
+  const generateFollowupDraft = (contact: ContactRecord, tone: 'casual' | 'formal' | 'sales') => {
     setGeneratingFollowup(true);
     
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
-    
-    if (apiKey.trim()) {
-      try {
-        const name = contact.full_name;
-        const title = contact.role || contact.ai_structured?.title || '';
-        const company = contact.ai_structured?.company || '';
-        const met_at = 'our meeting';
-        const met_date = contact.met_at_date || new Date().toISOString().split('T')[0];
-        const notes = contact.context_notes || 'No specific notes';
-        const length = 'short (1-2 paragraphs)';
-        
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              systemInstruction: {
-                parts: [
-                  {
-                    text: 'You are a professional relationship assistant. Write a follow-up email that sounds authentic, not AI-generated.',
-                  },
-                ],
-              },
-              contents: [
-                {
-                  parts: [
-                    {
-                      text: `Contact: ${name}, ${title} at ${company}
-Met at: ${met_at} on ${met_date}
-Notes: ${notes}
-Tone: ${tone}
-Write a ${length} follow-up email. Subject line first, then body. Do not use filler phrases like "Hope this email finds you well."`,
-                    },
-                  ],
-                },
-              ],
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Gemini API error: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (textResult) {
-          setFollowupDraft(textResult.trim());
-          setGeneratingFollowup(false);
-          return;
-        }
-      } catch (err) {
-        console.warn('Gemini follow-up generation failed, falling back to simulation:', err);
-      }
-    }
-
-    // Fallback to local simulation
+    // Simulate slight loading delay for premium feel
     setTimeout(() => {
-      const firstName = contact.full_name.split(' ')[0];
-      const companyName = contact.ai_structured?.company || 'your company';
+      const name = contact.full_name.split(' ')[0];
+      const company = contact.ai_structured?.company || 'your company';
       const eventDetails = contact.context_notes ? ` mentioning: "${contact.context_notes}"` : '';
       
       let message = '';
       if (tone === 'casual') {
-        message = `Subject: Great meeting you! 👋\n\nHi ${firstName},\n\nIt was awesome connecting with you today${eventDetails ? ' and talking about' + eventDetails : ''}.\n\nLet's grab a coffee sometime next week to chat more about how we might work together. Let me know what days work best for you!\n\nBest,\n[Your Name]`;
+        message = `Subject: Great meeting you! 👋\n\nHi ${name},\n\nIt was awesome connecting with you today${eventDetails ? ' and talking about' + eventDetails : ''}.\n\nLet's grab a coffee sometime next week to chat more about how we might work together. Let me know what days work best for you!\n\nBest,\n[Your Name]`;
       } else if (tone === 'formal') {
-        message = `Subject: Connection follow-up - [Your Name]\n\nDear ${firstName},\n\nThank you for taking the time to speak with me earlier today. I enjoyed learning more about your work at ${companyName}.\n\nI have attached the details we discussed. Please let me know if you have availability for a brief call next week to explore partnership opportunities.\n\nSincerely,\n[Your Name]`;
+        message = `Subject: Connection follow-up - [Your Name]\n\nDear ${name},\n\nThank you for taking the time to speak with me earlier today. I enjoyed learning more about your work at ${company}.\n\nI have attached the details we discussed. Please let me know if you have availability for a brief call next week to explore partnership opportunities.\n\nSincerely,\n[Your Name]`;
       } else {
-        message = `Subject: Maximize your productivity with CardFollowup\n\nHi ${firstName},\n\nI was glad to meet you. Following up on our discussion about ${companyName}'s current workflow constraints, I believe our automation suite can save your team over 10 hours a week.\n\nCan we set up a 10-minute demo on Tuesday at 2 PM to show you how?\n\nCheers,\n[Your Name]`;
+        message = `Subject: Maximize your productivity with CardFollowup\n\nHi ${name},\n\nI was glad to meet you. Following up on our discussion about ${company}'s current workflow constraints, I believe our automation suite can save your team over 10 hours a week.\n\nCan we set up a 10-minute demo on Tuesday at 2 PM to show you how?\n\nCheers,\n[Your Name]`;
       }
 
       setFollowupDraft(message);

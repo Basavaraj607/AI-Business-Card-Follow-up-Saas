@@ -149,7 +149,6 @@ export function AuthProvider({
 
   const signOut = async () => {
     localStorage.removeItem('mock_user')
-    localStorage.removeItem('local_contacts')
     setUser(null)
     setSession(null)
     try {
