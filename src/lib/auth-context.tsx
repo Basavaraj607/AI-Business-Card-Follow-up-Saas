@@ -161,13 +161,35 @@ export function AuthProvider({
 
   const signInWithMock = async (email: string) => {
     const mockEmail = email.trim() || 'tester@example.com'
+    
+    // Generate deterministic UUID from email to prevent cross-user mock session conflicts
+    const getDeterministicUuid = (str: string) => {
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        hash = (hash << 5) - hash + str.charCodeAt(i)
+        hash |= 0
+      }
+      const seed = Math.abs(hash)
+      const randomHex = (s: number) => {
+        const r = Math.sin(s) * 10000
+        return Math.floor((r - Math.floor(r)) * 16).toString(16)
+      }
+      let hex = ''
+      for (let i = 0; i < 32; i++) {
+        hex += randomHex(seed + i)
+      }
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+    }
+
+    const mockId = getDeterministicUuid(mockEmail)
+
     const u = {
-      id: '00000000-0000-0000-0000-000000000000',
+      id: mockId,
       email: mockEmail,
       user_metadata: {
-        full_name: 'Local Tester',
+        full_name: mockEmail.split('@')[0],
         avatar_url: '',
-        tenant_id: '00000000-0000-0000-0000-000000000000'
+        tenant_id: mockId
       }
     } as any
     sessionStorage.setItem('mock_user', JSON.stringify(u))
@@ -177,19 +199,20 @@ export function AuthProvider({
 
     // Provision mock workspace & profile in live database to satisfy constraints
     try {
+      const emailSlug = mockEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace'
       await supabase.from('tenants').insert({
-        id: '00000000-0000-0000-0000-000000000000',
-        name: 'Local Testing Workspace',
-        slug: 'local-test-workspace',
+        id: mockId,
+        name: `${mockEmail.split('@')[0]}'s Workspace`,
+        slug: `${emailSlug}-workspace`,
         plan: 'free',
-        owner_id: '00000000-0000-0000-0000-000000000000',
+        owner_id: mockId,
         settings: {}
       });
       
       await supabase.from('profiles').insert({
-        id: '00000000-0000-0000-0000-000000000000',
-        tenant_id: '00000000-0000-0000-0000-000000000000',
-        full_name: 'Local Tester',
+        id: mockId,
+        tenant_id: mockId,
+        full_name: mockEmail.split('@')[0],
         role: 'owner',
         email: mockEmail
       });

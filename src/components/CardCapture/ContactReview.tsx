@@ -62,21 +62,23 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
     const supabase = createClient();
 
     // Ensure mock tenant and profile exist in database for bypass account
-    if (user.id === '00000000-0000-0000-0000-000000000000') {
+    if (sessionStorage.getItem('mock_user')) {
       try {
+        const tenantId = user.user_metadata?.tenant_id ?? user.id;
+        const emailSlug = (user.email ?? 'workspace').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace';
         await supabase.from('tenants').insert({
-          id: '00000000-0000-0000-0000-000000000000',
-          name: 'Local Testing Workspace',
-          slug: 'local-test-workspace',
+          id: tenantId,
+          name: `${user.email ?? 'Workspace'}'s Workspace`,
+          slug: `${emailSlug}-workspace`,
           plan: 'free',
-          owner_id: '00000000-0000-0000-0000-000000000000',
+          owner_id: user.id,
           settings: {}
         });
         
         await supabase.from('profiles').insert({
-          id: '00000000-0000-0000-0000-000000000000',
-          tenant_id: '00000000-0000-0000-0000-000000000000',
-          full_name: 'Local Tester',
+          id: user.id,
+          tenant_id: tenantId,
+          full_name: user.user_metadata?.full_name ?? user.email ?? 'Local Tester',
           role: 'owner',
           email: user.email || 'tester@example.com'
         });
