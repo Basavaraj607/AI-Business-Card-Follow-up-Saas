@@ -33,7 +33,7 @@ export function AuthProvider({
   useEffect(() => {
     const getInitialSession = async () => {
       // 1. Check if mock user is saved
-      const savedMock = localStorage.getItem('mock_user')
+      const savedMock = sessionStorage.getItem('mock_user')
       if (savedMock) {
         try {
           const u = JSON.parse(savedMock)
@@ -42,7 +42,7 @@ export function AuthProvider({
           setLoading(false)
           return
         } catch {
-          localStorage.removeItem('mock_user')
+          sessionStorage.removeItem('mock_user')
         }
       }
 
@@ -69,7 +69,7 @@ export function AuthProvider({
     try {
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
         // Only override if mock user is NOT active
-        if (!localStorage.getItem('mock_user')) {
+        if (!sessionStorage.getItem('mock_user')) {
           setSession(session)
           setUser(session?.user ?? null)
           setLoading(false)
@@ -148,7 +148,7 @@ export function AuthProvider({
   }
 
   const signOut = async () => {
-    localStorage.removeItem('mock_user')
+    sessionStorage.removeItem('mock_user')
     localStorage.removeItem('local_contacts')
     setUser(null)
     setSession(null)
@@ -170,7 +170,7 @@ export function AuthProvider({
         tenant_id: '00000000-0000-0000-0000-000000000000'
       }
     } as any
-    localStorage.setItem('mock_user', JSON.stringify(u))
+    sessionStorage.setItem('mock_user', JSON.stringify(u))
     setUser(u)
     setSession({ user: u } as any)
     setLoading(false)
