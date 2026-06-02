@@ -1,0 +1,224 @@
+@import "tailwindcss";
+
+/* ── Design Tokens ─────────────────────────────────── */
+@theme {
+  --color-brand:        #1D9E75;
+  --color-brand-50:     #E1F5EE;
+  --color-brand-100:    #C2EADF;
+  --color-brand-400:    #1D9E75;
+  --color-brand-500:    #1D9E75;
+  --color-brand-600:    #147A5A;
+  --color-brand-800:    #085041;
+
+  --color-surface:      #FFFFFF;
+  --color-surface-2:    #F7F8FA;
+  --color-surface-3:    #F0F2F5;
+
+  --color-border:       rgba(0, 0, 0, 0.08);
+  --color-border-strong: rgba(0, 0, 0, 0.14);
+
+  --color-text-primary:   #111827;
+  --color-text-secondary: #6B7280;
+  --color-text-tertiary:  #9CA3AF;
+
+  --radius-sm:  6px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+  --radius-xl:  16px;
+  --radius-2xl: 20px;
+
+  --shadow-card: 0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.06);
+  --shadow-card-hover: 0 4px 12px 0 rgba(0,0,0,0.08);
+  --shadow-dropdown: 0 8px 24px rgba(0,0,0,0.10);
+}
+
+/* ── Base ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-surface-2);
+  color: var(--color-text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ── Scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+
+/* ── Component Utilities ────────────────────────────── */
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-lg border border-gray-100 shadow-card;
+  }
+  .card-hover {
+    @apply transition-shadow duration-200 hover:shadow-card-hover;
+  }
+
+  /* Buttons */
+  @utility btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2
+           text-sm font-medium rounded-md
+           transition-all duration-150 cursor-pointer select-none
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand-400 text-white
+           hover:bg-brand-600 active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply btn bg-white text-gray-700 border border-gray-200
+           hover:bg-gray-50 active:scale-[0.98];
+  }
+  .btn-ghost {
+    @apply btn text-gray-600
+           hover:bg-gray-100 active:scale-[0.98];
+  }
+  .btn-danger {
+    @apply btn bg-red-50 text-red-600 border border-red-100
+           hover:bg-red-100 active:scale-[0.98];
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  /* Form Inputs */
+  .input {
+    @apply w-full px-3 py-2 text-sm
+           bg-white border border-gray-200 rounded-md
+           placeholder:text-gray-400
+           focus:outline-none focus:ring-2 focus:ring-brand-400/30 focus:border-brand-400
+           transition-colors duration-150;
+  }
+  .input-label {
+    @apply block text-sm font-medium text-gray-700 mb-1.5;
+  }
+  .input-group {
+    @apply flex flex-col gap-0.5;
+  }
+
+  /* Badges */
+  @utility badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5
+           text-xs font-medium rounded-full;
+  }
+  .badge-green  { @apply badge bg-brand-50 text-brand-800; }
+  .badge-amber  { @apply badge bg-amber-50 text-amber-800; }
+  .badge-blue   { @apply badge bg-blue-50 text-blue-800; }
+  .badge-gray   { @apply badge bg-gray-100 text-gray-600; }
+  .badge-red    { @apply badge bg-red-50 text-red-700; }
+
+  /* Lead priority badges */
+  .badge-hot  { @apply badge bg-red-50 text-red-700; }
+  .badge-warm { @apply badge bg-amber-50 text-amber-800; }
+  .badge-cold { @apply badge bg-blue-50 text-blue-700; }
+
+  /* Sidebar nav link */
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-md text-sm
+           text-gray-600 font-medium cursor-pointer
+           transition-all duration-150
+           hover:bg-gray-100 hover:text-gray-900;
+  }
+  .nav-link.active {
+    @apply bg-brand-50 text-brand-800;
+  }
+
+  /* Section headers */
+  .section-title {
+    @apply text-lg font-semibold text-gray-900;
+  }
+  .section-subtitle {
+    @apply text-sm text-gray-500;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-gray-100;
+  }
+
+  /* Avatar */
+  @utility avatar {
+    @apply flex items-center justify-center rounded-full
+           text-sm font-semibold flex-shrink-0;
+  }
+  .avatar-sm  { @apply avatar w-8 h-8 text-xs; }
+  .avatar-md  { @apply avatar w-10 h-10 text-sm; }
+  .avatar-lg  { @apply avatar w-14 h-14 text-base; }
+
+/* ── Page transition ────────────────────────────────── */
+.page-enter {
+  animation: fadeSlideIn 0.18s ease-out;
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Spinner ────────────────────────────────────────── */
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid #E5E7EB;
+  border-top-color: var(--color-brand);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.spinner-sm { width: 14px; height: 14px; }
+.spinner-lg { width: 28px; height: 28px; border-width: 3px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Upload zone ────────────────────────────────────── */
+.upload-zone {
+  @apply relative flex flex-col items-center justify-center
+         p-8 rounded-xl border-2 border-dashed border-gray-200
+         bg-gray-50 cursor-pointer
+         transition-all duration-200
+         hover:border-brand-400 hover:bg-brand-50;
+}
+.upload-zone.dragging {
+  @apply border-brand-400 bg-brand-50 scale-[1.01];
+}
+
+/* ── Timeline ───────────────────────────────────────── */
+.timeline-item {
+  @apply relative flex gap-3 pb-5;
+}
+.timeline-item:not(:last-child)::before {
+  content: '';
+  @apply absolute left-[11px] top-7 bottom-0 w-px bg-gray-100;
+}
+.timeline-dot {
+  @apply w-6 h-6 rounded-full flex items-center justify-center
+         flex-shrink-0 mt-0.5 bg-white border border-gray-200;
+}
+
+/* ── Empty state ────────────────────────────────────── */
+.empty-state {
+  @apply flex flex-col items-center justify-center
+         py-16 text-center;
+}
+.empty-icon {
+  @apply w-16 h-16 rounded-2xl bg-gray-100
+         flex items-center justify-center mb-4;
+}
+
+/* ── Mobile bottom nav safe area ───────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .bottom-nav {
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  }
+}
