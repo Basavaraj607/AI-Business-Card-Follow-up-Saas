@@ -10,17 +10,49 @@ export interface ParsedContact {
   linkedin: string;
   notes?: string;
   preferredTone?: string;
+  rawText?: string;
   [key: string]: any;
 }
 
+export interface ImageFileParam {
+  mimeType: string;
+  base64Data: string;
+}
+
 /**
- * Parses raw OCR text from a business card using Gemini API or a regex fallback.
+ * Parses raw OCR text or a business card image using Gemini API or a regex fallback.
  */
-export async function parseCardText(ocrText: string): Promise<ParsedContact> {
+export async function parseCardText(
+  ocrText: string,
+  imageFile?: ImageFileParam
+): Promise<ParsedContact> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
 
   if (apiKey.trim()) {
     try {
+      const parts: any[] = [];
+      
+      if (imageFile) {
+        // Multimodal API request
+        parts.push({
+          inlineData: {
+            mimeType: imageFile.mimeType,
+            data: imageFile.base64Data
+          }
+        });
+        parts.push({
+          text: `Extract contact details from this business card image. Look for full name, email address, phone number, company name, job title, website URL, and LinkedIn profile URL. Also extract all raw text visible on the card (including addresses and any other lines) and save it in the "rawText" field. If a field cannot be found, set it to an empty string. Format the output as JSON according to the schema.`
+        });
+      } else {
+        // Text-only API request
+        parts.push({
+          text: `Extract contact details from the following raw OCR text of a business card. Look for full name, email address, phone number, company name, job title, website url, and LinkedIn profile URL. Also include all OCR text in the "rawText" field. If a field cannot be found, set it to an empty string. Format the output as JSON according to the schema.
+                    
+OCR Text:
+${ocrText}`
+        });
+      }
+
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
         {
@@ -31,14 +63,7 @@ export async function parseCardText(ocrText: string): Promise<ParsedContact> {
           body: JSON.stringify({
             contents: [
               {
-                parts: [
-                  {
-                    text: `Extract contact details from the following raw OCR text of a business card. Look for full name, email address, phone number, company name, job title, website url, and LinkedIn profile URL. If a field cannot be found, set it to an empty string. Format the output as JSON according to the schema.
-                    
-OCR Text:
-${ocrText}`,
-                  },
-                ],
+                parts: parts,
               },
             ],
             generationConfig: {
@@ -53,6 +78,7 @@ ${ocrText}`,
                   title: { type: 'STRING', description: 'Job title' },
                   website: { type: 'STRING', description: 'Company website URL' },
                   linkedin: { type: 'STRING', description: 'LinkedIn URL or handle' },
+                  rawText: { type: 'STRING', description: 'All raw text extracted from the business card' },
                 },
                 required: ['name'],
               },

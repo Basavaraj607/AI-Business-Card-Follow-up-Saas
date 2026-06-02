@@ -37,15 +37,22 @@ export function UploadPage() {
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
 
   // Stepper state
-  const [steps, setSteps] = useState<ProcessingStep[]>([
-    { id: 'compress', label: 'Optimize & Upload', sub: 'Compressing and saving to cloud storage', status: 'idle' },
-    { id: 'ocr',      label: 'Local OCR Scan',     sub: 'Extracting text directly in browser', status: 'idle' },
-    { id: 'parse',    label: 'AI Field Parsing',   sub: 'Structuring details into contact card', status: 'idle' },
-  ]);
+  const [steps, setSteps] = useState<ProcessingStep[]>([]);
 
   useEffect(() => {
     const key = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
-    setHasApiKey(!!key.trim());
+    const hasKey = !!key.trim();
+    setHasApiKey(hasKey);
+    setSteps([
+      { id: 'compress', label: 'Optimize & Upload', sub: 'Compressing and saving to cloud storage', status: 'idle' },
+      { 
+        id: 'ocr',      
+        label: hasKey ? 'AI Vision Scan' : 'Local OCR Scan',     
+        sub: hasKey ? 'Analyzing image layout and visual elements' : 'Extracting text directly in browser', 
+        status: 'idle' 
+      },
+      { id: 'parse',    label: 'AI Field Parsing',   sub: 'Structuring details into contact card', status: 'idle' },
+    ]);
   }, []);
 
   const updateStepStatus = (id: StepId, status: 'idle' | 'loading' | 'done' | 'error') => {
@@ -114,31 +121,62 @@ export function UploadPage() {
       return;
     }
 
-    // Step 2: OCR Scanning
+    // Step 2: OCR Scanning / AI Vision prepare
     setCurrentStep('ocr');
     updateStepStatus('ocr', 'loading');
     let extractedText = '';
-    try {
-      const { data: { text } } = await Tesseract.recognize(finalCompressedFile, 'eng');
-      extractedText = text;
-      setOcrText(text);
+    let imageFileParam: { mimeType: string; base64Data: string } | undefined = undefined;
 
-      if (!text.trim()) {
-        throw new Error('No text found on card');
+    if (hasApiKey) {
+      try {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.onerror = (err) => reject(err);
+        });
+        reader.readAsDataURL(finalCompressedFile);
+        const base64Data = await base64Promise;
+        imageFileParam = {
+          mimeType: finalCompressedFile.type,
+          base64Data
+        };
+        updateStepStatus('ocr', 'done');
+      } catch (err) {
+        console.error('Base64 conversion error:', err);
+        updateStepStatus('ocr', 'error');
+        toast.error('Failed to process image for AI vision.');
+        return;
       }
-      updateStepStatus('ocr', 'done');
-    } catch (err) {
-      console.error('OCR error:', err);
-      updateStepStatus('ocr', 'error');
-      toast.error('Failed to extract text. Make sure card is clear.');
-      return;
+    } else {
+      try {
+        const { data: { text } } = await Tesseract.recognize(finalCompressedFile, 'eng');
+        extractedText = text;
+        setOcrText(text);
+
+        if (!text.trim()) {
+          throw new Error('No text found on card');
+        }
+        updateStepStatus('ocr', 'done');
+      } catch (err) {
+        console.error('OCR error:', err);
+        updateStepStatus('ocr', 'error');
+        toast.error('Failed to extract text. Make sure card is clear.');
+        return;
+      }
     }
 
     // Step 3: AI Field Parsing
     setCurrentStep('parse');
     updateStepStatus('parse', 'loading');
     try {
-      const data = await parseCardText(extractedText);
+      const data = await parseCardText(extractedText, imageFileParam);
+      if (data.rawText) {
+        setOcrText(data.rawText);
+      }
       setParsedData(data);
       updateStepStatus('parse', 'done');
       setCurrentStep('review');
