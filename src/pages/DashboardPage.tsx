@@ -90,23 +90,15 @@ export function DashboardPage() {
       });
       setRecentContacts(recents || []);
 
-    } catch (err) {
-      console.warn('Supabase dashboard fetch failed, loading local storage fallback:', err);
-      try {
-        const local = JSON.parse(localStorage.getItem('local_contacts') || '[]');
-        const total = local.length;
-        const hot = local.filter((c: any) => c.lead_status === 'hot').length;
-        const warm = local.filter((c: any) => c.lead_status === 'warm').length;
-        setStats({
-          totalContacts: total,
-          hotContacts: hot,
-          warmContacts: warm,
-          followupsSent: 0
-        });
-        setRecentContacts(local.slice(0, 3));
-      } catch (localErr) {
-        console.error('Local dashboard metrics calculation failed:', localErr);
-      }
+    } catch (err: any) {
+      console.error('Supabase dashboard fetch failed:', err);
+      setStats({
+        totalContacts: 0,
+        hotContacts: 0,
+        warmContacts: 0,
+        followupsSent: 0
+      });
+      setRecentContacts([]);
     } finally {
       setLoading(false);
     }

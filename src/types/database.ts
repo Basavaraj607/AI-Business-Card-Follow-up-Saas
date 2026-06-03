@@ -136,6 +136,7 @@ export interface Database {
           id: string
           tenant_id: string
           created_by: string
+          owner_id: string | null
           company_id: string | null
           // Core info
           full_name: string
@@ -146,6 +147,8 @@ export interface Database {
           // Social
           linkedin_url: string | null
           twitter_handle: string | null
+          // Source Tracking
+          source: string
           // Card metadata
           card_image_url: string | null
           card_image_path: string | null
@@ -153,19 +156,30 @@ export interface Database {
           raw_ocr_text: string | null
           ai_structured: Json | null
           ai_notes: string | null
-          // Relationship
+          last_interaction_summary: string | null
+          // Lead intelligence
           lead_status: LeadStatus
           lead_score: number | null
+          opportunity_type: string | null
+          relationship_stage: string
           // Context (where/when met)
           met_at_event: string | null
           met_at_date: string | null
           met_at_location: string | null
           context_notes: string | null
-          // State
+          // Stats
+          email_count: number
+          whatsapp_count: number
+          sms_count: number
+          // Follow-up
+          followup_status: string | null
           last_contacted_at: string | null
           next_followup_at: string | null
           tags: string[]
+          // Duplicate / Security / Search
+          contact_hash: string | null
           is_archived: boolean
+          search_vector: string | null
           created_at: string
           updated_at: string
         }

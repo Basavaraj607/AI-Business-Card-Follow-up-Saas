@@ -150,8 +150,7 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
     } catch (err: any) {
       console.error('Supabase save failed:', err);
       const errorMsg = err?.message || err?.details || JSON.stringify(err);
-      toast.error(`Database Error: ${errorMsg}`, { duration: 6000 });
-
+      
       // If foreign key to tenants is missing, try to create tenant/profile and retry once
       const fkMissing = err?.code === '23503' || (err?.message && err.message.includes('violates foreign key'))
       if (fkMissing) {
@@ -160,59 +159,23 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
           const emailSlug = (user.email ?? 'workspace').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace'
           await supabase.from('tenants').upsert({ id: tenantId, name: user.email ?? 'Workspace', slug: emailSlug, owner_id: user.id }, { onConflict: 'id' })
           await supabase.from('profiles').upsert({ id: user.id, tenant_id: tenantId, full_name: user.user_metadata?.full_name ?? user.email ?? 'User', email: user.email }, { onConflict: 'id' })
+          
           // retry insert
           const { data: retried, error: retryError } = await supabase.from('contacts').insert(contactPayload).select()
           console.debug('Retry insert response:', { retried, retryError })
           if (!retryError) {
-            toast.success('Contact scanned and saved!')
-            if (onSave) return onSave()
-            return navigate('/contacts')
+            toast.success('Contact scanned and saved!');
+            if (onSave) return onSave();
+            return navigate('/contacts');
+          } else {
+            throw retryError;
           }
-        } catch (retryErr) {
-          console.warn('Retry after creating tenant/profile failed:', retryErr)
+        } catch (retryErr: any) {
+          console.error('Retry after creating tenant/profile failed:', retryErr);
+          toast.error(`Database Error: ${retryErr?.message || retryErr || 'Failed to initialize account workspace'}`);
         }
-      }
-
-      try {
-        const local = JSON.parse(localStorage.getItem('local_contacts') || '[]');
-        const mockSavedPayload = {
-          id: crypto.randomUUID(),
-          tenant_id: user.user_metadata?.tenant_id ?? user.id,
-          created_by: user.id,
-          full_name: contact.name,
-          email: contact.email || null,
-          phone: contact.phone || null,
-          role: contact.title || null,
-          linkedin_url: contact.linkedin || null,
-          card_image_path: cardImagePath || null,
-          card_image_url: null,
-          raw_ocr_text: rawOcrText,
-          ai_structured: {
-            name: contact.name,
-            email: contact.email,
-            phone: contact.phone,
-            company: contact.company,
-            title: contact.title,
-            website: contact.website,
-            linkedin: contact.linkedin
-          },
-          context_notes: notes || null,
-          lead_status: tone === 'sales' || tone === 'partner' ? 'hot' : tone === 'formal' ? 'cold' : 'warm',
-          met_at_date: new Date().toISOString().split('T')[0],
-          tags: [tone],
-          is_archived: false
-        };
-        local.unshift(mockSavedPayload);
-        localStorage.setItem('local_contacts', JSON.stringify(local));
-        toast.success('Contact scanned and saved locally!');
-        if (onSave) {
-          onSave();
-        } else {
-          navigate('/contacts');
-        }
-      } catch (localErr) {
-        console.error('Local save failed:', localErr);
-        toast.error('Failed to save contact locally.');
+      } else {
+        toast.error(`Database Error: ${errorMsg}`, { duration: 6000 });
       }
     } finally {
       setSaving(false);

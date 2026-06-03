@@ -154,47 +154,9 @@ export function ContactsPage() {
       setIsEditing(false);
       toast.success('Contact updated successfully!');
 
-      // Update local cache
-      try {
-        const local = JSON.parse(localStorage.getItem('local_contacts') || '[]');
-        const updatedLocal = local.map((c: any) => c.id === selectedContact.id ? updatedContact : c);
-        localStorage.setItem('local_contacts', JSON.stringify(updatedLocal));
-      } catch {}
     } catch (err: any) {
       console.error('Failed to update contact in database:', err);
-      // fallback to offline edit if database fails
-      const updatedContact: ContactRecord = {
-        ...selectedContact,
-        full_name: editForm.fullName,
-        email: editForm.email || null,
-        phone: editForm.phone || null,
-        role: editForm.role || null,
-        lead_status: editForm.leadStatus,
-        context_notes: editForm.contextNotes || null,
-        linkedin_url: editForm.linkedin || null,
-        ai_structured: {
-          ...selectedContact.ai_structured,
-          name: editForm.fullName,
-          email: editForm.email,
-          phone: editForm.phone,
-          company: editForm.company,
-          title: editForm.role,
-          website: editForm.website,
-          linkedin: editForm.linkedin
-        }
-      };
-
-      try {
-        const local = JSON.parse(localStorage.getItem('local_contacts') || '[]');
-        const updatedLocal = local.map((c: any) => c.id === selectedContact.id ? updatedContact : c);
-        localStorage.setItem('local_contacts', JSON.stringify(updatedLocal));
-        setContacts(prev => prev.map(c => c.id === selectedContact.id ? updatedContact : c));
-        setSelectedContact(updatedContact);
-        setIsEditing(false);
-        toast.success('Contact updated locally (Offline mode)');
-      } catch {
-        toast.error('Failed to update contact');
-      }
+      toast.error(`Database Error: ${err?.message || err || 'Failed to update contact'}`);
     } finally {
       setSavingEdit(false);
     }
@@ -218,18 +180,9 @@ export function ContactsPage() {
 
       if (error) throw error;
       setContacts(data || []);
-      if (data) {
-        localStorage.setItem('local_contacts', JSON.stringify(data));
-      }
-    } catch (err) {
-      console.warn('Supabase fetch failed, loading local fallback:', err);
-      try {
-        const localContacts = localStorage.getItem('local_contacts') || '[]';
-        setContacts(JSON.parse(localContacts));
-        toast('Offline mode: loaded contacts from cache', { icon: '💾' });
-      } catch (jsonErr) {
-        console.error('Failed to parse local contacts:', jsonErr);
-      }
+    } catch (err: any) {
+      console.error('Supabase fetch failed:', err);
+      toast.error('Database Error: Failed to fetch contacts');
     } finally {
       setLoading(false);
     }
@@ -257,25 +210,9 @@ export function ContactsPage() {
         setSelectedContact(null);
       }
       
-      try {
-        const local = JSON.parse(localStorage.getItem('local_contacts') || '[]');
-        const filtered = local.filter((c: any) => c.id !== id);
-        localStorage.setItem('local_contacts', JSON.stringify(filtered));
-      } catch {}
-    } catch (err) {
-      console.warn('Supabase delete failed, deleting locally:', err);
-      try {
-        const local = JSON.parse(localStorage.getItem('local_contacts') || '[]');
-        const filtered = local.filter((c: any) => c.id !== id);
-        localStorage.setItem('local_contacts', JSON.stringify(filtered));
-        setContacts(filtered);
-        toast.success('Contact deleted locally');
-        if (selectedContact?.id === id) {
-          setSelectedContact(null);
-        }
-      } catch {
-        toast.error('Failed to delete contact');
-      }
+    } catch (err: any) {
+      console.error('Supabase delete failed:', err);
+      toast.error(`Database Error: ${err?.message || err || 'Failed to delete contact'}`);
     }
   };
 
