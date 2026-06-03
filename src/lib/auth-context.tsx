@@ -15,6 +15,7 @@ interface AuthContextValue {
   realUser: User | null
   role: string | null
   userType: string | null
+  tenantId: string | null
   impersonatedUser: User | null
   impersonateUser: (target: { id: string; email: string; full_name?: string; tenant_id?: string } | null) => void
   session: Session | null
@@ -40,6 +41,7 @@ export function AuthProvider({
   const [loading, setLoading] = useState(true)
   const [role, setRole] = useState<string | null>(null)
   const [userType, setUserType] = useState<string | null>(null)
+  const [tenantId, setTenantId] = useState<string | null>(null)
   const [impersonatedUser, setImpersonatedUser] = useState<User | null>(null)
 
   useEffect(() => {
@@ -116,11 +118,12 @@ export function AuthProvider({
     }
   }, [])
 
-  // Fetch the role and user type for the authenticated user
+  // Fetch the role, user type, and tenant_id for the authenticated user
   useEffect(() => {
     if (!user) {
       setRole(null)
       setUserType(null)
+      setTenantId(null)
       return
     }
 
@@ -128,21 +131,24 @@ export function AuthProvider({
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('role, user_type')
+          .select('role, user_type, tenant_id')
           .eq('id', user.id)
           .maybeSingle()
 
         if (data && !error) {
           setRole(data.role)
           setUserType(data.user_type)
+          setTenantId(data.tenant_id)
         } else {
           setRole('member')
           setUserType('user')
+          setTenantId(user.user_metadata?.tenant_id ?? user.id)
         }
       } catch (err) {
         console.warn('Failed to fetch user role:', err)
         setRole('member')
         setUserType('user')
+        setTenantId(user.user_metadata?.tenant_id ?? user.id)
       }
     }
 
@@ -376,6 +382,7 @@ export function AuthProvider({
     realUser: user,
     role,
     userType,
+    tenantId,
     impersonatedUser,
     impersonateUser,
     session,

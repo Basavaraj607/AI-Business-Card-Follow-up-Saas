@@ -37,7 +37,7 @@ interface Props {
 }
 
 export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath = '' }: Props) {
-  const { user } = useAuth();
+  const { user, tenantId: authTenantId } = useAuth();
   const navigate = useNavigate();
   const [contact, setContact] = useState<ParsedContact>(initial);
   const [notes, setNotes] = useState('');
@@ -64,7 +64,7 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
     // Ensure mock tenant and profile exist in database for bypass account
     if (sessionStorage.getItem('mock_user')) {
       try {
-        const tenantId = user.user_metadata?.tenant_id ?? user.id;
+        const tenantId = authTenantId ?? user.user_metadata?.tenant_id ?? user.id;
         const emailSlug = (user.email ?? 'workspace').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace';
         await supabase.from('tenants').insert({
           id: tenantId,
@@ -89,7 +89,7 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
     }
 
     try {
-      const tenantId = user.user_metadata?.tenant_id ?? user.id;
+      const tenantId = authTenantId ?? user.user_metadata?.tenant_id ?? user.id;
 
       // Get public URL of the card image if path is provided
       let cardImageUrl = null;
