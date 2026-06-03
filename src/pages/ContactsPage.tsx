@@ -9,6 +9,9 @@ import {
   Loader2, MessageSquare
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { notifications } from '../services/notifications';
+import { analytics } from '../services/posthog';
+import { inngest } from '../services/inngest';
 
 const Linkedin = (props: any) => (
   <svg
@@ -276,11 +279,67 @@ export function ContactsPage() {
     }
   };
 
-  // Dummy followup generator utilizing local state & prompts
-  const generateFollowupDraft = (contact: ContactRecord, tone: 'casual' | 'formal' | 'sales') => {
+  // Followup generator utilizing Gemini LLM or local template fallbacks with registered user's custom details
+  const generateFollowupDraft = async (contact: ContactRecord, tone: 'casual' | 'formal' | 'sales') => {
     setGeneratingFollowup(true);
     
-    // Simulate slight loading delay for premium feel
+    const senderName = user?.user_metadata?.full_name || 'User';
+    const senderPhone = user?.user_metadata?.phone || user?.phone || '';
+    const senderCompany = user?.user_metadata?.company_name || '';
+    const sign = `${senderName}${senderCompany ? '\n' + senderCompany : ''}${senderPhone ? '\n' + senderPhone : ''}`;
+
+    const key = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
+    if (key) {
+      try {
+        const systemPrompt = `You are a professional relationship assistant. Write a follow-up email that sounds authentic, not AI-generated. Do not use generic filler phrases like "Hope this email finds you well" or "I am writing to...".`;
+        
+        const userPrompt = `Write a ${tone} follow-up email to my contact:
+Contact Name: ${contact.full_name}
+Job Title: ${contact.role || 'N/A'}
+Company: ${contact.ai_structured?.company || 'N/A'}
+Met Date: ${contact.met_at_date || 'recently'}
+Meeting context: ${contact.context_notes || 'N/A'}
+
+My Information:
+Sender Name: ${senderName}
+Sender Phone: ${senderPhone}
+Sender Company: ${senderCompany}
+
+Please include a subject line (starting with "Subject: ...") at the top of the email, followed by the email body. Format with clean spacing.`;
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
+                }
+              ]
+            })
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const draftText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (draftText) {
+            setFollowupDraft(draftText.trim());
+            setGeneratingFollowup(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Gemini follow-up generation failed, using local template:', err);
+      }
+    }
+
+    // Fallback template matching
     setTimeout(() => {
       const name = contact.full_name.split(' ')[0];
       const company = contact.ai_structured?.company || 'your company';
@@ -288,11 +347,11 @@ export function ContactsPage() {
       
       let message = '';
       if (tone === 'casual') {
-        message = `Subject: Great meeting you! 👋\n\nHi ${name},\n\nIt was awesome connecting with you today${eventDetails ? ' and talking about' + eventDetails : ''}.\n\nLet's grab a coffee sometime next week to chat more about how we might work together. Let me know what days work best for you!\n\nBest,\n[Your Name]`;
+        message = `Subject: Great meeting you! 👋\n\nHi ${name},\n\nIt was awesome connecting with you today${eventDetails ? ' and talking about' + eventDetails : ''}.\n\nLet's grab a coffee sometime next week to chat more about how we might work together. Let me know what days work best for you!\n\nBest,\n${sign}`;
       } else if (tone === 'formal') {
-        message = `Subject: Connection follow-up - [Your Name]\n\nDear ${name},\n\nThank you for taking the time to speak with me earlier today. I enjoyed learning more about your work at ${company}.\n\nI have attached the details we discussed. Please let me know if you have availability for a brief call next week to explore partnership opportunities.\n\nSincerely,\n[Your Name]`;
+        message = `Subject: Connection follow-up - ${senderName}\n\nDear ${name},\n\nThank you for taking the time to speak with me earlier today. I enjoyed learning more about your work at ${company}.\n\nI have attached the details we discussed. Please let me know if you have availability for a brief call next week to explore partnership opportunities.\n\nSincerely,\n${sign}`;
       } else {
-        message = `Subject: Maximize your productivity with CardFollowup\n\nHi ${name},\n\nI was glad to meet you. Following up on our discussion about ${company}'s current workflow constraints, I believe our automation suite can save your team over 10 hours a week.\n\nCan we set up a 10-minute demo on Tuesday at 2 PM to show you how?\n\nCheers,\n[Your Name]`;
+        message = `Subject: Maximize your productivity with CardFollowup\n\nHi ${name},\n\nI was glad to meet you. Following up on our discussion about ${company}'s current workflow constraints, I believe our automation suite can save your team over 10 hours a week.\n\nCan we set up a 10-minute demo on Tuesday at 2 PM to show you how?\n\nCheers,\n${sign}`;
       }
 
       setFollowupDraft(message);
@@ -785,6 +844,80 @@ export function ContactsPage() {
                             SMS
                           </a>
                         </div>
+
+                        <button
+                          onClick={async () => {
+                            try {
+                              const hasEmail = !!selectedContact.email;
+                              const channel = hasEmail ? 'email' : 'sms';
+                              const recipient = hasEmail ? selectedContact.email : (selectedContact.phone || '');
+                              
+                              if (!recipient) {
+                                toast.error('No email or phone number to send to.');
+                                return;
+                              }
+
+                              toast.promise(
+                                notifications.send({
+                                  channel,
+                                  to: recipient,
+                                  subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
+                                  body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
+                                  contactId: selectedContact.id
+                                }).then(async (res) => {
+                                  // Track in analytics and Inngest workflow scheduler
+                                  await analytics.track({
+                                    name: 'followup_sent',
+                                    distinctId: user?.id || 'anonymous',
+                                    properties: { channel, contactId: selectedContact.id }
+                                  });
+
+                                  await inngest.sendEvent({
+                                    name: 'cardfollowup/sequence.start',
+                                    data: {
+                                      channel,
+                                      to: recipient,
+                                      body: followupDraft,
+                                      contactId: selectedContact.id
+                                    }
+                                  });
+
+                                  // Create message log in Supabase
+                                  const { error: msgErr } = await createClient()
+                                    .from('messages')
+                                    .insert({
+                                      tenant_id: user?.user_metadata?.tenant_id || user?.id,
+                                      contact_id: selectedContact.id,
+                                      sent_by: user?.id,
+                                      channel,
+                                      status: 'sent',
+                                      subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
+                                      body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
+                                      ai_generated: true,
+                                      metadata: { sent_via: 'direct_dashboard' }
+                                    });
+                                  if (msgErr) console.warn('Database message logging failed:', msgErr);
+
+                                  if (res.simulated) {
+                                    return 'Follow-up simulated successfully!';
+                                  }
+                                  return 'Follow-up sent successfully!';
+                                }),
+                                {
+                                  loading: 'Sending follow-up via pipeline...',
+                                  success: (msg) => msg,
+                                  error: 'Failed to send follow-up.'
+                                }
+                              );
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }}
+                          className="w-full btn bg-brand hover:bg-brand-600 text-white rounded-xl py-2.5 font-bold shadow-md hover:shadow-lg flex items-center justify-center gap-1.5 mt-3 cursor-pointer"
+                        >
+                          <Sparkles size={14} className="text-brand-100" />
+                          Send via Server Pipeline
+                        </button>
                       </div>
                     ) : (
                       <button

@@ -8,15 +8,24 @@ import {
 
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { toast } from 'react-hot-toast'
 
 interface AuthContextValue {
   user: User | null
+  realUser: User | null
+  role: string | null
+  userType: string | null
+  impersonatedUser: User | null
+  impersonateUser: (target: { id: string; email: string; full_name?: string; tenant_id?: string } | null) => void
   session: Session | null
   loading: boolean
   signInWithGoogle: () => Promise<void>
   signInWithMagicLink: (email: string) => Promise<void>
   signOut: () => Promise<void>
   signInWithMock: (email: string) => Promise<void>
+  signUpWithPassword: (email: string, password: string, first_name: string, last_name: string, phone: string, company: string) => Promise<any>
+  signInWithPassword: (email: string, password: string) => Promise<any>
+  verifyOtp: (emailOrPhone: string, token: string, type: 'signup' | 'sms') => Promise<any>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -29,6 +38,9 @@ export function AuthProvider({
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [role, setRole] = useState<string | null>(null)
+  const [userType, setUserType] = useState<string | null>(null)
+  const [impersonatedUser, setImpersonatedUser] = useState<User | null>(null)
 
   useEffect(() => {
     const getInitialSession = async () => {
@@ -39,10 +51,27 @@ export function AuthProvider({
           const u = JSON.parse(savedMock)
           setUser(u)
           setSession({ user: u } as any)
+
+          // Check if impersonation was active
+          const savedImpersonated = sessionStorage.getItem('impersonated_user')
+          if (savedImpersonated) {
+            setImpersonatedUser(JSON.parse(savedImpersonated))
+          }
+
           setLoading(false)
           return
         } catch {
           sessionStorage.removeItem('mock_user')
+        }
+      }
+
+      // Check if impersonation was active
+      const savedImpersonated = sessionStorage.getItem('impersonated_user')
+      if (savedImpersonated) {
+        try {
+          setImpersonatedUser(JSON.parse(savedImpersonated))
+        } catch {
+          sessionStorage.removeItem('impersonated_user')
         }
       }
 
@@ -87,6 +116,39 @@ export function AuthProvider({
     }
   }, [])
 
+  // Fetch the role and user type for the authenticated user
+  useEffect(() => {
+    if (!user) {
+      setRole(null)
+      setUserType(null)
+      return
+    }
+
+    const fetchRole = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('role, user_type')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (data && !error) {
+          setRole(data.role)
+          setUserType(data.user_type)
+        } else {
+          setRole('member')
+          setUserType('user')
+        }
+      } catch (err) {
+        console.warn('Failed to fetch user role:', err)
+        setRole('member')
+        setUserType('user')
+      }
+    }
+
+    fetchRole()
+  }, [user])
+
   useEffect(() => {
     if (!user) return
 
@@ -99,7 +161,12 @@ export function AuthProvider({
         // Try upserting tenant (id = tenantId)
         const { error: tenantError } = await supabase
           .from('tenants')
-          .upsert({ id: tenantId, name: `${user.email ?? 'Workspace'}`, slug: emailSlug, owner_id: user.id }, { onConflict: 'id' })
+          .upsert({ 
+            id: tenantId, 
+            name: user.user_metadata?.company_name ?? `${user.email ?? 'Workspace'}`, 
+            slug: emailSlug, 
+            owner_id: user.id 
+          }, { onConflict: 'id' })
 
         if (tenantError) {
           console.warn('Failed to upsert tenant:', tenantError)
@@ -108,7 +175,13 @@ export function AuthProvider({
         // Upsert profile for the user
         const { error: profileError } = await supabase
           .from('profiles')
-          .upsert({ id: user.id, tenant_id: tenantId, full_name: user.user_metadata?.full_name ?? user.email ?? 'User', email: user.email }, { onConflict: 'id' })
+          .upsert({ 
+            id: user.id, 
+            tenant_id: tenantId, 
+            full_name: user.user_metadata?.full_name ?? user.email ?? 'User', 
+            email: user.email,
+            phone: user.user_metadata?.phone ?? user.phone ?? null
+          }, { onConflict: 'id' })
 
         if (profileError) {
           console.warn('Failed to upsert profile:', profileError)
@@ -149,9 +222,13 @@ export function AuthProvider({
 
   const signOut = async () => {
     sessionStorage.removeItem('mock_user')
+    sessionStorage.removeItem('impersonated_user')
     localStorage.removeItem('local_contacts')
     setUser(null)
+    setImpersonatedUser(null)
     setSession(null)
+    setRole(null)
+    setUserType(null)
     try {
       await supabase.auth.signOut()
     } catch (err) {
@@ -222,14 +299,94 @@ export function AuthProvider({
     }
   }
 
+  const signUpWithPassword = async (email: string, password: string, first_name: string, last_name: string, phone: string, company: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          first_name,
+          last_name,
+          full_name: `${first_name} ${last_name}`.trim(),
+          phone,
+          company_name: company
+        }
+      }
+    })
+    if (error) throw error
+    return data
+  }
+
+  const signInWithPassword = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+    if (error) throw error
+    if (data.session) {
+      setSession(data.session)
+      setUser(data.user)
+    }
+    return data
+  }
+
+  const verifyOtp = async (emailOrPhone: string, token: string, type: 'signup' | 'sms') => {
+    const verifyParams: any = {
+      token,
+      type
+    }
+    if (type === 'sms') {
+      verifyParams.phone = emailOrPhone
+    } else {
+      verifyParams.email = emailOrPhone
+    }
+
+    const { data, error } = await supabase.auth.verifyOtp(verifyParams)
+    if (error) throw error
+
+    if (data.session) {
+      setSession(data.session)
+      setUser(data.user)
+    }
+    return data
+  }
+
+  const impersonateUser = (target: { id: string; email: string; full_name?: string; tenant_id?: string } | null) => {
+    if (!target) {
+      sessionStorage.removeItem('impersonated_user')
+      setImpersonatedUser(null)
+      toast.success('Ended user impersonation')
+    } else {
+      const mockUserObj = {
+        id: target.id,
+        email: target.email,
+        user_metadata: {
+          full_name: target.full_name || target.email.split('@')[0],
+          tenant_id: target.tenant_id || target.id
+        }
+      } as any
+      sessionStorage.setItem('impersonated_user', JSON.stringify(mockUserObj))
+      setImpersonatedUser(mockUserObj)
+      toast.success(`Impersonating ${target.email}`)
+    }
+  }
+
   const value: AuthContextValue = {
-    user,
+    user: impersonatedUser || user,
+    realUser: user,
+    role,
+    userType,
+    impersonatedUser,
+    impersonateUser,
     session,
     loading,
     signInWithGoogle,
     signInWithMagicLink,
     signOut,
-    signInWithMock
+    signInWithMock,
+    signUpWithPassword,
+    signInWithPassword,
+    verifyOtp
   }
 
   return (

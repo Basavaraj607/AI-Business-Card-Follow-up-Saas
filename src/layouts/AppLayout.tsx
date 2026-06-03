@@ -9,13 +9,14 @@ import {
   LogOut, 
   Menu, 
   X,
-  CreditCard
+  CreditCard,
+  Shield
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import toast from 'react-hot-toast';
 
 export function AppLayout() {
-  const { user, signOut } = useAuth();
+  const { user, userType, impersonatedUser, impersonateUser, signOut } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -41,8 +42,27 @@ export function AppLayout() {
     { to: '/settings', label: 'Settings', icon: Settings },
   ];
 
+  if (userType === 'superadmin') {
+    navItems.push({ to: '/admin', label: 'Admin Panel', icon: Shield });
+  }
+
   return (
-    <div className="min-h-screen flex bg-gray-50 text-gray-900">
+    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
+      {impersonatedUser && (
+        <div className="bg-amber-500 text-amber-950 px-4 py-2 text-center text-xs font-semibold flex items-center justify-center gap-3 shrink-0 shadow-sm border-b border-amber-600 sticky top-0 z-50">
+          <span>
+            You are currently impersonating <strong className="underline">{name}</strong> ({email})
+          </span>
+          <button 
+            onClick={() => impersonateUser(null)}
+            className="bg-amber-950 text-amber-100 hover:bg-amber-900 px-2 py-0.5 rounded transition-all font-bold uppercase tracking-wider text-[10px]"
+          >
+            Exit
+          </button>
+        </div>
+      )}
+      
+      <div className="flex-1 flex min-h-0">
       
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-gray-100 p-5 shrink-0 justify-between">
@@ -190,6 +210,8 @@ export function AppLayout() {
             </NavLink>
           ))}
         </nav>
+      </div>
+
       </div>
 
     </div>
