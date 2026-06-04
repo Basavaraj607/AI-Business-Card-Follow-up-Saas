@@ -211,24 +211,27 @@ export function LoginPage() {
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="input-group">
-                  <label className="input-label" htmlFor="email">Email address</label>
-                  <div className="relative">
-                    <input
-                      id="email"
-                      type="email"
-                      value={loginEmail}
-                      onChange={e => setLoginEmail(e.target.value)}
-                      placeholder="you@company.com"
-                      className="input pl-10 py-3 rounded-xl border-gray-200"
-                      required
-                    />
-                    <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  </div>
+                  <label className="input-label flex items-center gap-1.5" htmlFor="email">
+                    <Mail size={15} className="text-gray-400" />
+                    Email address
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={loginEmail}
+                    onChange={e => setLoginEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    className="input py-3 rounded-xl border-gray-200"
+                    required
+                  />
                 </div>
 
                 <div className="input-group">
-                  <div className="flex justify-between items-center mb-0.5">
-                    <label className="input-label mb-0" htmlFor="password">Password</label>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="input-label mb-0 flex items-center gap-1.5" htmlFor="password">
+                      <Lock size={15} className="text-gray-400" />
+                      Password
+                    </label>
                     <a href="#" className="text-xs font-semibold text-brand hover:underline">Forgot?</a>
                   </div>
                   <div className="relative">
@@ -238,10 +241,9 @@ export function LoginPage() {
                       value={loginPassword}
                       onChange={e => setLoginPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="input pl-10 pr-10 py-3 rounded-xl border-gray-200"
+                      className="input input-icon-right py-3 rounded-xl border-gray-200"
                       required
                     />
-                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                     <button
                       type="button"
                       onClick={() => setShowLoginPassword(!showLoginPassword)}
@@ -295,22 +297,25 @@ export function LoginPage() {
               <form onSubmit={handleRegister} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3.5">
                   <div className="input-group">
-                    <label className="input-label" htmlFor="firstName">First name</label>
-                    <div className="relative">
-                      <input
-                        id="firstName"
-                        type="text"
-                        value={regFirstName}
-                        onChange={e => setRegFirstName(e.target.value)}
-                        placeholder="John"
-                          className="input pl-10 py-2.5 rounded-xl border-gray-200"
-                        required
-                      />
-                      <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                    </div>
+                    <label className="input-label flex items-center gap-1.5" htmlFor="firstName">
+                      <User size={15} className="text-gray-400" />
+                      First name
+                    </label>
+                    <input
+                      id="firstName"
+                      type="text"
+                      value={regFirstName}
+                      onChange={e => setRegFirstName(e.target.value)}
+                      placeholder="John"
+                      className="input py-2.5 rounded-xl border-gray-200"
+                      required
+                    />
                   </div>
                   <div className="input-group">
-                    <label className="input-label" htmlFor="lastName">Last name</label>
+                    <label className="input-label flex items-center gap-1.5" htmlFor="lastName">
+                      <User size={15} className="text-gray-400" />
+                      Last name
+                    </label>
                     <input
                       id="lastName"
                       type="text"
@@ -324,40 +329,43 @@ export function LoginPage() {
                 </div>
 
                 <div className="input-group">
-                  <label className="input-label" htmlFor="regEmail">Email address</label>
-                  <div className="relative">
-                    <input
-                      id="regEmail"
-                      type="email"
-                      value={regEmail}
-                      onChange={e => setRegEmail(e.target.value)}
-                      placeholder="john@company.com"
-                      className="input pl-10 py-2.5 rounded-xl border-gray-200"
-                      required
-                    />
-                    <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  </div>
+                  <label className="input-label flex items-center gap-1.5" htmlFor="regEmail">
+                    <Mail size={15} className="text-gray-400" />
+                    Email address
+                  </label>
+                  <input
+                    id="regEmail"
+                    type="email"
+                    value={regEmail}
+                    onChange={e => setRegEmail(e.target.value)}
+                    placeholder="john@company.com"
+                    className="input py-2.5 rounded-xl border-gray-200"
+                    required
+                  />
                 </div>
 
                 <div className="input-group">
-                  <label className="input-label" htmlFor="regPhone">Phone number</label>
-                  <div className="relative">
-                    <input
-                      id="regPhone"
-                      type="tel"
-                      value={regPhone}
-                      onChange={e => setRegPhone(e.target.value)}
-                      placeholder="+1234567890"
-                      className="input pl-10 py-2.5 rounded-xl border-gray-200"
-                      required
-                    />
-                    <Phone size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  </div>
+                  <label className="input-label flex items-center gap-1.5" htmlFor="regPhone">
+                    <Phone size={15} className="text-gray-400" />
+                    Phone number
+                  </label>
+                  <input
+                    id="regPhone"
+                    type="tel"
+                    value={regPhone}
+                    onChange={e => setRegPhone(e.target.value)}
+                    placeholder="+1234567890"
+                    className="input py-2.5 rounded-xl border-gray-200"
+                    required
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3.5">
                   <div className="input-group">
-                    <label className="input-label" htmlFor="regPassword">Password</label>
+                    <label className="input-label flex items-center gap-1.5" htmlFor="regPassword">
+                      <Lock size={15} className="text-gray-400" />
+                      Password
+                    </label>
                     <div className="relative">
                       <input
                         id="regPassword"
@@ -365,11 +373,10 @@ export function LoginPage() {
                         value={regPassword}
                         onChange={e => setRegPassword(e.target.value)}
                         placeholder="••••••••"
-                          className="input pl-10 pr-9 py-2.5 rounded-xl border-gray-200"
+                        className="input input-icon-right py-2.5 rounded-xl border-gray-200"
                         minLength={6}
                         required
                       />
-                      <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                       <button
                         type="button"
                         onClick={() => setShowRegPassword(!showRegPassword)}
@@ -380,7 +387,10 @@ export function LoginPage() {
                     </div>
                   </div>
                   <div className="input-group">
-                    <label className="input-label" htmlFor="regConfirmPassword">Confirm</label>
+                    <label className="input-label flex items-center gap-1.5" htmlFor="regConfirmPassword">
+                      <Lock size={15} className="text-gray-400" />
+                      Confirm
+                    </label>
                     <input
                       id="regConfirmPassword"
                       type={showRegPassword ? 'text' : 'password'}
@@ -395,19 +405,19 @@ export function LoginPage() {
                 </div>
 
                 <div className="input-group">
-                  <label className="input-label" htmlFor="regCompany">Company name</label>
-                  <div className="relative">
-                    <input
-                      id="regCompany"
-                      type="text"
-                      value={regCompany}
-                      onChange={e => setRegCompany(e.target.value)}
-                      placeholder="Acme Corp"
-                      className="input pl-10 py-2.5 rounded-xl border-gray-200"
-                      required
-                    />
-                    <Building size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  </div>
+                  <label className="input-label flex items-center gap-1.5" htmlFor="regCompany">
+                    <Building size={15} className="text-gray-400" />
+                    Company name
+                  </label>
+                  <input
+                    id="regCompany"
+                    type="text"
+                    value={regCompany}
+                    onChange={e => setRegCompany(e.target.value)}
+                    placeholder="Acme Corp"
+                    className="input py-2.5 rounded-xl border-gray-200"
+                    required
+                  />
                 </div>
 
                 <button
