@@ -1,7 +1,7 @@
 // pages/SettingsPage.tsx
 import { useState, useEffect } from 'react';
 import { 
-  Key, Database, ShieldAlert, Sparkles, CheckCircle2, AlertCircle, 
+  Key, ShieldAlert, Sparkles, CheckCircle2, AlertCircle, 
   Cpu, Mail, Phone, MessageSquare, Terminal, RefreshCw, Send, CheckCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -167,7 +167,7 @@ export function SettingsPage() {
     }
   };
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'Not Configured';
+
 
   const toolStack = [
     { name: 'Vercel', type: 'Frontend Host', status: 'Active', color: 'bg-black text-white' },
@@ -295,33 +295,7 @@ export function SettingsPage() {
             )}
           </div>
 
-          {/* Database / Supabase */}
-          <div className="card p-6 space-y-4 bg-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Database size={20} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900 text-base">Backend & Storage</h3>
-                <p className="text-xs text-gray-500">Infrastructure settings loaded from environment</p>
-              </div>
-            </div>
 
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2 py-1 text-sm border-b border-gray-100">
-                <span className="text-gray-500">Supabase Endpoint</span>
-                <span className="col-span-2 font-mono text-xs text-gray-700 truncate">{supabaseUrl}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 py-1 text-sm border-b border-gray-100">
-                <span className="text-gray-500">Storage Bucket</span>
-                <span className="col-span-2 text-gray-700">card-images</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 py-1 text-sm">
-                <span className="text-gray-500">Tables</span>
-                <span className="col-span-2 text-gray-700 font-mono text-xs">contacts, tenants, profiles, messages</span>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
