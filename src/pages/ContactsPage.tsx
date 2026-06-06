@@ -57,7 +57,6 @@ export function ContactsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedContact, setSelectedContact] = useState<ContactRecord | null>(null);
 
-  // Editing state for selected contact
   const [isEditing, setIsEditing] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editForm, setEditForm] = useState<{
