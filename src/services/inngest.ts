@@ -21,7 +21,6 @@ class InngestService {
    */
   async sendEvent(event: InngestEventPayload): Promise<{ success: boolean; data?: any; simulated?: boolean }> {
     try {
-      // Proxy the event trigger via Supabase Edge Function to avoid key exposure
       const { data, error } = await supabase.functions.invoke('inngest', {
         headers: {
           'X-Inngest-Action': 'send-event',
