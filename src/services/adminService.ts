@@ -310,6 +310,24 @@ class AdminService {
   }
 
   async getSettings(): Promise<PlatformSettings> {
+    if (sessionStorage.getItem('mock_user')) {
+      return {
+        id: 'global',
+        maintenance_mode: false,
+        max_contacts_limit: 100,
+        max_messages_limit: 50,
+        default_resend_key: 're_mock_api_key_for_testing',
+        default_twilio_sid: 'ACmock_twilio_sid_for_testing',
+        default_twilio_token: 'mock_twilio_token',
+        default_twilio_phone: '+15005550006',
+        default_meta_token: 'EAABmock_meta_token',
+        default_meta_phone_id: 'mock_meta_phone_id',
+        feature_flags: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      } as any;
+    }
+
     try {
       return await this.invoke('get-settings');
     } catch (err) {
@@ -317,13 +335,56 @@ class AdminService {
       const { data, error } = await supabase
         .from('platform_settings')
         .eq('id', 'global')
-        .single();
+        .maybeSingle();
       if (error) throw error;
+      
+      if (!data) {
+        // Auto-seed if missing
+        const defaultSettings = {
+          id: 'global',
+          maintenance_mode: false,
+          max_contacts_limit: 100,
+          max_messages_limit: 50,
+          default_resend_key: '',
+          default_twilio_sid: '',
+          default_twilio_token: '',
+          default_twilio_phone: '',
+          default_meta_token: '',
+          default_meta_phone_id: '',
+          feature_flags: {}
+        };
+        const { data: seeded, error: seedError } = await supabase
+          .from('platform_settings')
+          .insert(defaultSettings)
+          .select()
+          .single();
+        if (seedError) throw seedError;
+        return seeded;
+      }
       return data;
     }
   }
 
   async updateSettings(settings: Partial<PlatformSettings>): Promise<PlatformSettings> {
+    if (sessionStorage.getItem('mock_user')) {
+      return {
+        id: 'global',
+        maintenance_mode: false,
+        max_contacts_limit: 100,
+        max_messages_limit: 50,
+        default_resend_key: 're_mock_api_key_for_testing',
+        default_twilio_sid: 'ACmock_twilio_sid_for_testing',
+        default_twilio_token: 'mock_twilio_token',
+        default_twilio_phone: '+15005550006',
+        default_meta_token: 'EAABmock_meta_token',
+        default_meta_phone_id: 'mock_meta_phone_id',
+        feature_flags: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ...settings
+      } as any;
+    }
+
     try {
       return await this.invoke('update-settings', { settings });
     } catch (err) {

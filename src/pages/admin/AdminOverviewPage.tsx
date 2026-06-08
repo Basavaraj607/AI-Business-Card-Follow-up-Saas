@@ -22,7 +22,6 @@ export function AdminSubNav() {
     { to: '/admin', label: 'Overview', exact: true },
     { to: '/admin/tenants', label: 'Tenants', exact: false },
     { to: '/admin/users', label: 'Users', exact: false },
-    { to: '/admin/settings', label: 'Settings', exact: false },
   ];
 
   return (

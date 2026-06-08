@@ -10,7 +10,6 @@ import { AdminOverviewPage } from './pages/admin/AdminOverviewPage'
 import { AdminTenantsPage } from './pages/admin/AdminTenantsPage'
 import { AdminTenantDetailPage } from './pages/admin/AdminTenantDetailPage'
 import { AdminUsersPage } from './pages/admin/AdminUsersPage'
-import { AdminSettingsPage } from './pages/admin/AdminSettingsPage'
 import AppLayout from './layouts/AppLayout'
 import ProtectedRoute from './routes/ProtectedRoute'
 
@@ -33,7 +32,6 @@ export function App() {
             <Route path="/admin/tenants" element={<ProtectedRoute requireAdmin={true}><AdminTenantsPage /></ProtectedRoute>} />
             <Route path="/admin/tenants/:id" element={<ProtectedRoute requireAdmin={true}><AdminTenantDetailPage /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requireAdmin={true}><AdminUsersPage /></ProtectedRoute>} />
-            <Route path="/admin/settings" element={<ProtectedRoute requireAdmin={true}><AdminSettingsPage /></ProtectedRoute>} />
           </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

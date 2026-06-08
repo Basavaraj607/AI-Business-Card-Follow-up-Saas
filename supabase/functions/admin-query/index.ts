@@ -272,10 +272,35 @@ serve(async (req) => {
       const { data, error } = await adminClient
         .from('platform_settings')
         .eq('id', 'global')
-        .single()
+        .maybeSingle()
 
       if (error) throw error
-      responseData = data
+
+      if (!data) {
+        // Auto-seed if missing
+        const defaultSettings = {
+          id: 'global',
+          maintenance_mode: false,
+          max_contacts_limit: 100,
+          max_messages_limit: 50,
+          default_resend_key: '',
+          default_twilio_sid: '',
+          default_twilio_token: '',
+          default_twilio_phone: '',
+          default_meta_token: '',
+          default_meta_phone_id: '',
+          feature_flags: {}
+        }
+        const { data: seeded, error: seedError } = await adminClient
+          .from('platform_settings')
+          .insert(defaultSettings)
+          .select()
+          .single()
+        if (seedError) throw seedError
+        responseData = seeded
+      } else {
+        responseData = data
+      }
 
     } else if (action === 'update-settings') {
       const { settings } = params
