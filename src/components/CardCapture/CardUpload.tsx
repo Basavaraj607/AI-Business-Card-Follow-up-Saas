@@ -5,10 +5,10 @@ import { Upload, FileImage, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Props {
-  onFile: (file: File) => void;
+  onFiles: (files: File[]) => void;
 }
 
-export function CardUpload({ onFile }: Props) {
+export function CardUpload({ onFiles }: Props) {
   const onDrop = useCallback(
     (accepted: File[], rejected: any[]) => {
       if (rejected.length > 0) {
@@ -20,11 +20,11 @@ export function CardUpload({ onFile }: Props) {
         }
         return;
       }
-      if (accepted[0]) {
-        onFile(accepted[0]);
+      if (accepted.length > 0) {
+        onFiles(accepted);
       }
     },
-    [onFile]
+    [onFiles]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -35,7 +35,7 @@ export function CardUpload({ onFile }: Props) {
       'image/webp': ['.webp'],
     },
     maxSize: 10 * 1024 * 1024, // 10MB
-    multiple: false,
+    multiple: true,
   });
 
   return (
