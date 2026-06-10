@@ -84,6 +84,8 @@ export function ContactsPage() {
   const handleSelectContact = (contact: ContactRecord) => {
     setSelectedContact(contact);
     setFollowupDraft('');
+    setCustomContext('');
+    setEditorMode('preview');
     setIsEditing(false);
     setEditForm({
       fullName: contact.full_name || '',
@@ -164,7 +166,117 @@ export function ContactsPage() {
   // Follow-up generator state
   const [generatingFollowup, setGeneratingFollowup] = useState(false);
   const [followupDraft, setFollowupDraft] = useState('');
-  const [selectedTone, setSelectedTone] = useState<'casual' | 'formal' | 'sales'>('casual');
+  const [followupTone, setFollowupTone] = useState<number>(3); // 1-5 (Casual, Friendly, Professional, Formal, Direct)
+  const [followupObjective, setFollowupObjective] = useState<string>('book_meeting');
+  const [followupLength, setFollowupLength] = useState<number>(2); // 1-3 (Short, Medium, Long)
+  const [customContext, setCustomContext] = useState<string>('');
+  const [editorMode, setEditorMode] = useState<'preview' | 'edit'>('preview');
+
+  const getToneLabel = (val: number) => {
+    switch (val) {
+      case 1: return 'Casual';
+      case 2: return 'Friendly';
+      case 3: return 'Professional';
+      case 4: return 'Formal';
+      case 5: return 'Direct';
+      default: return 'Professional';
+    }
+  };
+
+  const getLengthLabel = (val: number) => {
+    switch (val) {
+      case 1: return 'Short';
+      case 2: return 'Medium';
+      case 3: return 'Long';
+      default: return 'Medium';
+    }
+  };
+
+  const getObjectiveLabel = (val: string) => {
+    switch (val) {
+      case 'book_meeting': return 'Book a meeting';
+      case 'send_proposal': return 'Send proposal';
+      case 'say_thanks': return 'Say thank you';
+      case 'general_followup': return 'General follow-up';
+      default: return 'Book a meeting';
+    }
+  };
+
+  const escapeHtml = (text: string) => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  const highlightDraft = (text: string, contact: ContactRecord) => {
+    if (!text) return '';
+    let escaped = escapeHtml(text);
+    
+    const company = contact.ai_structured?.company || '';
+    const fullName = contact.full_name || '';
+    const firstName = fullName.split(' ')[0] || '';
+    const role = contact.role || '';
+    const senderName = user?.user_metadata?.full_name || '';
+    const senderCompany = user?.user_metadata?.company_name || '';
+    
+    const items: { term: string; className: string; label: string }[] = [];
+    
+    if (fullName && fullName.trim().length > 2) {
+      items.push({ term: fullName.trim(), className: 'bg-green-100 text-green-800 px-1 rounded font-semibold', label: 'Name' });
+    }
+    if (firstName && firstName.trim().length > 2 && firstName !== fullName) {
+      items.push({ term: firstName.trim(), className: 'bg-green-100 text-green-800 px-1 rounded font-semibold', label: 'First Name' });
+    }
+    if (company && company.trim().length > 2) {
+      items.push({ term: company.trim(), className: 'bg-amber-100 text-amber-800 px-1 rounded font-semibold', label: 'Company' });
+    }
+    if (role && role.trim().length > 2) {
+      items.push({ term: role.trim(), className: 'bg-blue-100 text-blue-800 px-1 rounded font-semibold', label: 'Role' });
+    }
+    if (senderName && senderName.trim().length > 2) {
+      items.push({ term: senderName.trim(), className: 'bg-purple-100 text-purple-800 px-1 rounded font-semibold', label: 'Sender' });
+    }
+    if (senderCompany && senderCompany.trim().length > 2 && senderCompany !== company) {
+      items.push({ term: senderCompany.trim(), className: 'bg-purple-100 text-purple-800 px-1 rounded font-semibold', label: 'My Company' });
+    }
+
+    if (customContext && customContext.trim().length > 2) {
+      const words = customContext.split(/[\s,.:;!?]+/)
+        .map(w => w.trim())
+        .filter(w => w.length > 4 && !['about', 'their', 'there', 'would', 'could', 'should', 'mention', 'conversation', 'product'].includes(w.toLowerCase()));
+      
+      words.forEach(word => {
+        if (!items.some(item => item.term.toLowerCase() === word.toLowerCase())) {
+          items.push({ term: word, className: 'bg-rose-100 text-rose-800 px-1 rounded font-semibold', label: 'Context' });
+        }
+      });
+    }
+
+    items.sort((a, b) => b.term.length - a.term.length);
+
+    const placeholders: { [key: string]: string } = {};
+    
+    items.forEach((item, index) => {
+      const termEscaped = escapeHtml(item.term);
+      const regexTerm = termEscaped.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const regex = new RegExp(`(${regexTerm})`, 'gi');
+      
+      escaped = escaped.replace(regex, (match) => {
+        const placeholderKey = `__HP_${index}__`;
+        placeholders[placeholderKey] = `<span class="${item.className}" title="${item.label}">${match}</span>`;
+        return placeholderKey;
+      });
+    });
+
+    Object.keys(placeholders).forEach(key => {
+      escaped = escaped.replaceAll(key, placeholders[key]);
+    });
+
+    return escaped;
+  };
 
   const fetchContacts = async () => {
     if (!user) return;
@@ -216,9 +328,20 @@ export function ContactsPage() {
   };
 
   // Followup generator utilizing Gemini LLM or local template fallbacks with registered user's custom details
-  const generateFollowupDraft = async (contact: ContactRecord, tone: 'casual' | 'formal' | 'sales') => {
+  const generateFollowupDraft = async (
+    contact: ContactRecord, 
+    toneVal?: number, 
+    objVal?: string, 
+    lenVal?: number, 
+    contextVal?: string
+  ) => {
     setGeneratingFollowup(true);
     
+    const currentTone = toneVal !== undefined ? toneVal : followupTone;
+    const currentObjective = objVal !== undefined ? objVal : followupObjective;
+    const currentLength = lenVal !== undefined ? lenVal : followupLength;
+    const currentContext = contextVal !== undefined ? contextVal : customContext;
+
     const senderName = user?.user_metadata?.full_name || 'User';
     const senderPhone = user?.user_metadata?.phone || user?.phone || '';
     const senderCompany = user?.user_metadata?.company_name || '';
@@ -229,17 +352,27 @@ export function ContactsPage() {
       try {
         const systemPrompt = `You are a professional relationship assistant. Write a follow-up email that sounds authentic, not AI-generated. Do not use generic filler phrases like "Hope this email finds you well" or "I am writing to...".`;
         
-        const userPrompt = `Write a ${tone} follow-up email to my contact:
-Contact Name: ${contact.full_name}
-Job Title: ${contact.role || 'N/A'}
-Company: ${contact.ai_structured?.company || 'N/A'}
-Met Date: ${contact.met_at_date || 'recently'}
-Meeting context: ${contact.context_notes || 'N/A'}
+        const toneLabel = getToneLabel(currentTone);
+        const lengthLabel = getLengthLabel(currentLength);
+        const objectiveLabel = getObjectiveLabel(currentObjective);
+        
+        const userPrompt = `Write a follow-up email to my contact with the following specifications:
+- Tone: ${toneLabel}
+- Objective: ${objectiveLabel}
+- Length: ${lengthLabel}
+${currentContext ? `- Custom Context: ${currentContext}` : ''}
+
+Contact Information:
+- Contact Name: ${contact.full_name}
+- Job Title: ${contact.role || 'N/A'}
+- Company: ${contact.ai_structured?.company || 'N/A'}
+- Met Date: ${contact.met_at_date || 'recently'}
+- Original meeting context notes: ${contact.context_notes || 'N/A'}
 
 My Information:
-Sender Name: ${senderName}
-Sender Phone: ${senderPhone}
-Sender Company: ${senderCompany}
+- Sender Name: ${senderName}
+- Sender Phone: ${senderPhone}
+- Sender Company: ${senderCompany}
 
 Please include a subject line (starting with "Subject: ...") at the top of the email, followed by the email body. Format with clean spacing.`;
 
@@ -279,17 +412,62 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
     setTimeout(() => {
       const name = contact.full_name.split(' ')[0];
       const company = contact.ai_structured?.company || 'your company';
-      const eventDetails = contact.context_notes ? ` mentioning: "${contact.context_notes}"` : '';
       
-      let message = '';
-      if (tone === 'casual') {
-        message = `Subject: Great meeting you! 👋\n\nHi ${name},\n\nIt was awesome connecting with you today${eventDetails ? ' and talking about' + eventDetails : ''}.\n\nLet's grab a coffee sometime next week to chat more about how we might work together. Let me know what days work best for you!\n\nBest,\n${sign}`;
-      } else if (tone === 'formal') {
-        message = `Subject: Connection follow-up - ${senderName}\n\nDear ${name},\n\nThank you for taking the time to speak with me earlier today. I enjoyed learning more about your work at ${company}.\n\nI have attached the details we discussed. Please let me know if you have availability for a brief call next week to explore partnership opportunities.\n\nSincerely,\n${sign}`;
+      let subject = '';
+      let greeting = '';
+      let bodyText = '';
+      let cta = '';
+      
+      // 1. Build Greeting based on tone
+      if (currentTone >= 4) {
+        greeting = `Dear ${contact.full_name || name},`;
       } else {
-        message = `Subject: Maximize your productivity with CardFollowup\n\nHi ${name},\n\nI was glad to meet you. Following up on our discussion about ${company}'s current workflow constraints, I believe our automation suite can save your team over 10 hours a week.\n\nCan we set up a 10-minute demo on Tuesday at 2 PM to show you how?\n\nCheers,\n${sign}`;
+        greeting = `Hi ${name},`;
       }
 
+      // 2. Build Subject Line and CTA based on Objective
+      if (currentObjective === 'book_meeting') {
+        subject = `Meeting follow-up - Let's connect`;
+        cta = `Would you have 15 minutes to spare next week for a brief call? I'd love to learn more about your work at ${company} and discuss how we might collaborate.`;
+      } else if (currentObjective === 'send_proposal') {
+        subject = `Proposal presentation details for ${company}`;
+        cta = `I have compiled a customized draft proposal for your review. Let me know if you would like me to walk you through it on a quick zoom call.`;
+      } else if (currentObjective === 'say_thanks') {
+        subject = `Great connecting with you!`;
+        cta = `Just wanted to say a sincere thank you for sharing your time and insights. Let's make sure to stay in touch!`;
+      } else {
+        subject = `Connecting following our conversation`;
+        cta = `Let's keep the conversation going. I'll reach out again soon, or feel free to ping me if you have any questions!`;
+      }
+
+      if (currentTone === 1) {
+        subject = `Hey! Great connecting 👋`;
+      }
+
+      // 3. Build main body using meeting context and custom context
+      let contextPart = '';
+      if (currentContext) {
+        contextPart = `Following up on our talk about ${currentContext}.`;
+      } else if (contact.context_notes) {
+        contextPart = `It was great speaking about "${contact.context_notes}" when we met.`;
+      } else {
+        contextPart = `It was great connecting with you recently.`;
+      }
+
+      // Adjust body details based on length and tone
+      let detailsPart = '';
+      if (currentLength === 1) { // Short
+        detailsPart = `I really enjoyed our conversation.`;
+        bodyText = `${greeting}\n\n${contextPart} ${detailsPart}\n\n${cta}\n\nBest regards,\n${sign}`;
+      } else if (currentLength === 2) { // Medium
+        detailsPart = `I found your insights regarding the industry developments at ${company} highly intriguing, and it aligns closely with what we're working on.`;
+        bodyText = `${greeting}\n\n${contextPart}\n\n${detailsPart}\n\n${cta}\n\nWarm regards,\n${sign}`;
+      } else { // Long
+        detailsPart = `I've been thinking more about our conversation. The projects you are spearheading at ${company} are impressive. At my end, we focus on building robust solutions that maximize productivity and streamline workflows, which is why I was excited to connect with you.`;
+        bodyText = `${greeting}\n\n${contextPart}\n\n${detailsPart}\n\n${cta}\n\nBest wishes,\n${sign}`;
+      }
+
+      const message = `Subject: ${subject}\n\n${bodyText}`;
       setFollowupDraft(message);
       setGeneratingFollowup(false);
     }, 600);
@@ -710,53 +888,182 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
                   )}
 
                   {/* AI Follow-Up Generator Box */}
-                  <div className="space-y-3 border-t border-gray-100 pt-5">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold text-gray-900 uppercase flex items-center gap-1.5">
-                        <Sparkles size={14} className="text-brand-500" />
-                        AI Follow-up Draft
-                      </h4>
-                      <div className="flex gap-1 bg-gray-100 p-0.5 rounded-md">
-                        {(['casual', 'formal', 'sales'] as const).map(tone => (
-                          <button
-                            key={tone}
-                            onClick={() => {
-                              setSelectedTone(tone);
-                              generateFollowupDraft(selectedContact, tone);
-                            }}
-                            className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-all capitalize cursor-pointer
-                              ${selectedTone === tone ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-                          >
-                            {tone}
-                          </button>
-                        ))}
+                  <div className="space-y-4 border-t border-gray-100 pt-5">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={14} className="text-brand-500 font-semibold" />
+                      <h4 className="text-xs font-bold text-gray-900 uppercase">AI Follow-up Composer</h4>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                      {/* Tone Slider */}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-semibold text-gray-600">Tone</span>
+                          <span className="text-brand-600 font-bold">{getToneLabel(followupTone)}</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="1" 
+                          max="5" 
+                          value={followupTone} 
+                          onChange={e => setFollowupTone(parseInt(e.target.value))}
+                          className="w-full accent-brand-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[9px] text-gray-400 font-semibold px-0.5">
+                          <span>Casual</span>
+                          <span>Friendly</span>
+                          <span>Professional</span>
+                          <span>Formal</span>
+                          <span>Direct</span>
+                        </div>
+                      </div>
+
+                      {/* Length Slider */}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-semibold text-gray-600">Length</span>
+                          <span className="text-brand-600 font-bold">{getLengthLabel(followupLength)}</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="1" 
+                          max="3" 
+                          value={followupLength} 
+                          onChange={e => setFollowupLength(parseInt(e.target.value))}
+                          className="w-full accent-brand-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[9px] text-gray-400 font-semibold px-0.5">
+                          <span>Short</span>
+                          <span>Medium</span>
+                          <span>Long</span>
+                        </div>
+                      </div>
+
+                      {/* Objective Dropdown */}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Objective</label>
+                        <select 
+                          value={followupObjective}
+                          onChange={e => setFollowupObjective(e.target.value)}
+                          className="input py-1.5 text-xs font-semibold"
+                        >
+                          <option value="book_meeting">Book a meeting</option>
+                          <option value="send_proposal">Send proposal</option>
+                          <option value="say_thanks">Say thank you</option>
+                          <option value="general_followup">General follow-up</option>
+                        </select>
+                      </div>
+
+                      {/* Custom Context Prompt */}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Custom Context (Optional)</label>
+                        <textarea 
+                          value={customContext}
+                          onChange={e => setCustomContext(e.target.value)}
+                          className="input py-1.5 text-xs resize-none"
+                          rows={2}
+                          placeholder="e.g. Mention our product launch discussion"
+                        />
                       </div>
                     </div>
 
+                    {!(!!(import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key'))) && customContext && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-100 rounded-lg flex items-start gap-2 text-[10px] text-amber-800">
+                        <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                        <span>Using local template fallback because Gemini API Key is missing. Custom context will be merged as a sentence.</span>
+                      </div>
+                    )}
+
                     {followupDraft ? (
                       <div className="space-y-3">
-                        <div className="relative">
-                          <textarea
-                            value={followupDraft}
-                            readOnly
-                            rows={8}
-                            className="w-full text-xs font-mono border border-gray-200 rounded-xl p-3 bg-gray-50 resize-none focus:outline-none"
-                          />
-                          <button 
-                            onClick={() => {
-                              navigator.clipboard.writeText(followupDraft);
-                              toast.success('Draft copied to clipboard!');
-                            }}
-                            className="absolute right-3 top-3 btn-secondary btn-sm bg-white text-[10px] px-2 py-1 border border-gray-200 hover:bg-gray-50 font-semibold"
-                          >
-                            Copy
-                          </button>
+                        <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                          {/* Tab Headers */}
+                          <div className="flex border-b border-gray-100 bg-gray-50 px-2 justify-between items-center">
+                            <div className="flex gap-1 py-1.5">
+                              <button
+                                onClick={() => setEditorMode('preview')}
+                                className={`px-2.5 py-1 text-[11px] font-semibold rounded transition-all cursor-pointer ${
+                                  editorMode === 'preview'
+                                    ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                                    : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                              >
+                                Interactive Preview
+                              </button>
+                              <button
+                                onClick={() => setEditorMode('edit')}
+                                className={`px-2.5 py-1 text-[11px] font-semibold rounded transition-all cursor-pointer ${
+                                  editorMode === 'edit'
+                                    ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                                    : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                              >
+                                Edit Plain Text
+                              </button>
+                            </div>
+                            
+                            <button 
+                              onClick={() => {
+                                navigator.clipboard.writeText(followupDraft);
+                                toast.success('Draft copied to clipboard!');
+                              }}
+                              className="btn-secondary btn-sm bg-white text-[10px] px-2 py-1 border border-gray-200 hover:bg-gray-50 font-semibold cursor-pointer"
+                            >
+                              Copy
+                            </button>
+                          </div>
+
+                          {/* Content Area */}
+                          <div className="p-3 bg-gray-50/30">
+                            {editorMode === 'preview' ? (
+                              <div 
+                                className="w-full text-xs font-mono min-h-[160px] whitespace-pre-wrap leading-relaxed select-text"
+                                dangerouslySetInnerHTML={{ __html: highlightDraft(followupDraft, selectedContact) }}
+                              />
+                            ) : (
+                              <textarea
+                                value={followupDraft}
+                                onChange={e => setFollowupDraft(e.target.value)}
+                                rows={8}
+                                className="w-full text-xs font-mono border-0 p-0 bg-transparent resize-none focus:ring-0 focus:outline-none"
+                                placeholder="Edit email body here..."
+                              />
+                            )}
+                          </div>
                         </div>
+
+                        {/* Interactive Highlights Legend */}
+                        {editorMode === 'preview' && (
+                          <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-gray-500 mt-1 px-1 font-medium bg-gray-50 p-2 rounded-lg border border-gray-100/50">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded bg-green-100 border border-green-300 inline-block" />
+                              Contact Name
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded bg-amber-100 border border-amber-300 inline-block" />
+                              Company
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded bg-blue-100 border border-blue-300 inline-block" />
+                              Job Title
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded bg-purple-100 border border-purple-300 inline-block" />
+                              My Info
+                            </span>
+                            {customContext && (
+                              <span className="flex items-center gap-1">
+                                <span className="w-2 h-2 rounded bg-rose-100 border border-rose-300 inline-block" />
+                                Custom Context
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <a 
                             href={`mailto:${selectedContact.email || ''}?subject=${encodeURIComponent(followupDraft.split('\n')[0].replace('Subject: ', ''))}&body=${encodeURIComponent(followupDraft.split('\n').slice(2).join('\n'))}`}
-                            className="btn-primary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center font-semibold"
+                            className="btn-primary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center font-semibold cursor-pointer"
                           >
                             <Mail size={12} />
                             Email
@@ -774,101 +1081,117 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
 
                           <a 
                             href={`sms:${selectedContact.phone ? selectedContact.phone.replace(/[^0-9+]/g, '') : ''}?body=${encodeURIComponent(followupDraft)}`}
-                            className="btn-secondary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-semibold"
+                            className="btn-secondary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-semibold cursor-pointer"
                           >
                             <Send size={12} />
                             SMS
                           </a>
                         </div>
 
-                        <button
-                          onClick={async () => {
-                            try {
-                              const hasEmail = !!selectedContact.email;
-                              const channel = hasEmail ? 'email' : 'sms';
-                              const recipient = hasEmail ? selectedContact.email : (selectedContact.phone || '');
-                              
-                              if (!recipient) {
-                                toast.error('No email or phone number to send to.');
-                                return;
-                              }
-
-                              toast.promise(
-                                notifications.send({
-                                  channel,
-                                  to: recipient,
-                                  subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
-                                  body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
-                                  contactId: selectedContact.id
-                                }).then(async (res) => {
-                                  // Track in analytics and Inngest workflow scheduler
-                                  await analytics.track({
-                                    name: 'followup_sent',
-                                    distinctId: user?.id || 'anonymous',
-                                    properties: { channel, contactId: selectedContact.id }
-                                  });
-
-                                  await inngest.sendEvent({
-                                    name: 'cardfollowup/sequence.start',
-                                    data: {
-                                      channel,
-                                      to: recipient,
-                                      body: followupDraft,
-                                      contactId: selectedContact.id
-                                    }
-                                  });
-
-                                  // Create message log in Supabase
-                                  const { error: msgErr } = await createClient()
-                                    .from('messages')
-                                    .insert({
-                                      tenant_id: user?.user_metadata?.tenant_id || user?.id,
-                                      contact_id: selectedContact.id,
-                                      sent_by: user?.id,
-                                      channel,
-                                      status: 'sent',
-                                      subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
-                                      body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
-                                      ai_generated: true,
-                                      metadata: { sent_via: 'direct_dashboard' }
-                                    });
-                                  if (msgErr) console.warn('Database message logging failed:', msgErr);
-
-                                  if (res.simulated) {
-                                    return 'Follow-up simulated successfully!';
-                                  }
-                                  return 'Follow-up sent successfully!';
-                                }),
-                                {
-                                  loading: 'Sending follow-up via pipeline...',
-                                  success: (msg) => msg,
-                                  error: 'Failed to send follow-up.'
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              try {
+                                const hasEmail = !!selectedContact.email;
+                                const channel = hasEmail ? 'email' : 'sms';
+                                const recipient = hasEmail ? selectedContact.email : (selectedContact.phone || '');
+                                
+                                if (!recipient) {
+                                  toast.error('No email or phone number to send to.');
+                                  return;
                                 }
-                              );
-                            } catch (err) {
-                              console.error(err);
-                            }
-                          }}
-                          className="w-full btn bg-brand hover:bg-brand-600 text-white rounded-xl py-2.5 font-bold shadow-md hover:shadow-lg flex items-center justify-center gap-1.5 mt-3 cursor-pointer"
-                        >
-                          <Sparkles size={14} className="text-brand-100" />
-                          Send via Server Pipeline
-                        </button>
+
+                                toast.promise(
+                                  notifications.send({
+                                    channel,
+                                    to: recipient,
+                                    subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
+                                    body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
+                                    contactId: selectedContact.id
+                                  }).then(async (res) => {
+                                    // Track in analytics and Inngest workflow scheduler
+                                    await analytics.track({
+                                      name: 'followup_sent',
+                                      distinctId: user?.id || 'anonymous',
+                                      properties: { channel, contactId: selectedContact.id }
+                                    });
+
+                                    await inngest.sendEvent({
+                                      name: 'cardfollowup/sequence.start',
+                                      data: {
+                                        channel,
+                                        to: recipient,
+                                        body: followupDraft,
+                                        contactId: selectedContact.id
+                                      }
+                                    });
+
+                                    // Create message log in Supabase
+                                    const { error: msgErr } = await createClient()
+                                      .from('messages')
+                                      .insert({
+                                        tenant_id: user?.user_metadata?.tenant_id || user?.id,
+                                        contact_id: selectedContact.id,
+                                        sent_by: user?.id,
+                                        channel,
+                                        status: 'sent',
+                                        subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
+                                        body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
+                                        ai_generated: true,
+                                        metadata: { sent_via: 'direct_dashboard' }
+                                      });
+                                    if (msgErr) console.warn('Database message logging failed:', msgErr);
+
+                                    if (res.simulated) {
+                                      return 'Follow-up simulated successfully!';
+                                    }
+                                    return 'Follow-up sent successfully!';
+                                  }),
+                                  {
+                                    loading: 'Sending follow-up via pipeline...',
+                                    success: (msg) => msg,
+                                    error: 'Failed to send follow-up.'
+                                  }
+                                );
+                              } catch (err) {
+                                console.error(err);
+                              }
+                            }}
+                            className="flex-1 btn bg-brand hover:bg-brand-600 text-white rounded-xl py-2.5 font-bold shadow-md hover:shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Sparkles size={14} className="text-brand-100" />
+                            Send via Server Pipeline
+                          </button>
+                          
+                          <button
+                            onClick={() => generateFollowupDraft(selectedContact)}
+                            disabled={generatingFollowup}
+                            className="btn-secondary py-2.5 px-3.5 flex items-center justify-center gap-1.5 hover:bg-gray-50 cursor-pointer"
+                            title="Regenerate draft"
+                          >
+                            {generatingFollowup ? (
+                              <Loader2 size={14} className="animate-spin text-brand-500" />
+                            ) : (
+                              <Sparkles size={14} className="text-brand-500" />
+                            )}
+                            Regenerate
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <button
-                        onClick={() => generateFollowupDraft(selectedContact, selectedTone)}
+                        onClick={() => generateFollowupDraft(selectedContact)}
                         disabled={generatingFollowup}
-                        className="w-full btn-secondary py-3 flex items-center justify-center gap-2 hover:bg-gray-50 cursor-pointer"
+                        className="w-full btn bg-brand hover:bg-brand-600 text-white py-3 flex items-center justify-center gap-2 cursor-pointer shadow-md hover:shadow-lg font-bold rounded-xl"
                       >
                         {generatingFollowup ? (
                           <>
-                            <Loader2 size={14} className="animate-spin text-brand-500" />
+                            <Loader2 size={14} className="animate-spin text-brand-100" />
                             Generating sequence...
                           </>
                         ) : (
                           <>
-                            <Sparkles size={14} className="text-brand-500" />
+                            <Sparkles size={14} className="text-brand-100" />
                             Generate instant follow-up
                           </>
                         )}
