@@ -123,7 +123,7 @@ class AdminService {
         .select('created_at')
         .order('created_at', { ascending: false });
 
-      const last7Days: any = {};
+      const last7Days: Record<string, number> = {};
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
@@ -138,7 +138,7 @@ class AdminService {
           }
         }
       });
-      const signupsSparkline = Object.entries(last7Days).map(([date, count]) => ({ date, count }));
+      const signupsSparkline = Object.entries(last7Days).map(([date, count]) => ({ date, count: count as number }));
 
       return {
         totalTenants: totalTenants || 0,
@@ -198,17 +198,17 @@ class AdminService {
     } catch (err) {
       console.warn('Edge Function get-tenant failed, falling back to direct DB query:', err);
 
-      const { data: tenantDetails } = await supabase.from('tenants').eq('id', tenantId).single();
+      const { data: tenantDetails } = await (supabase.from('tenants') as any).select().eq('id', tenantId).single();
       if (!tenantDetails) throw new Error('Tenant not found');
 
-      const { data: members } = await supabase.from('profiles').eq('tenant_id', tenantId);
-      const { data: contacts } = await supabase
-        .from('contacts')
+      const { data: members } = await (supabase.from('profiles') as any).select().eq('tenant_id', tenantId);
+      const { data: contacts } = await (supabase.from('contacts') as any)
+        .select()
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
-      const { data: messages } = await supabase
-        .from('messages')
+      const { data: messages } = await (supabase.from('messages') as any)
+        .select()
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
@@ -227,8 +227,7 @@ class AdminService {
     } catch (err) {
       console.warn('Edge Function change-plan failed, falling back to direct DB query:', err);
 
-      const { data, error } = await supabase
-        .from('tenants')
+      const { data, error } = await (supabase.from('tenants') as any)
         .update({ plan, updated_at: new Date().toISOString() })
         .eq('id', tenantId)
         .select()
@@ -239,7 +238,7 @@ class AdminService {
       // Log audit activity
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.from('audit_logs').insert({
+        await (supabase.from('audit_logs') as any).insert({
           performed_by: user.id,
           action: 'update',
           target_type: 'tenant',
@@ -260,16 +259,16 @@ class AdminService {
       console.warn('Edge Function delete-tenant failed, falling back to direct DB query:', err);
 
       // Cascade manually just in case constraints don't cascade on user delete
-      await supabase.from('messages').delete().eq('tenant_id', tenantId);
-      await supabase.from('contacts').delete().eq('tenant_id', tenantId);
-      await supabase.from('profiles').delete().eq('tenant_id', tenantId);
-      const { error: tErr } = await supabase.from('tenants').delete().eq('id', tenantId);
+      await (supabase.from('messages') as any).delete().eq('tenant_id', tenantId);
+      await (supabase.from('contacts') as any).delete().eq('tenant_id', tenantId);
+      await (supabase.from('profiles') as any).delete().eq('tenant_id', tenantId);
+      const { error: tErr } = await (supabase.from('tenants') as any).delete().eq('id', tenantId);
       if (tErr) throw tErr;
 
       // Log audit activity
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.from('audit_logs').insert({
+        await (supabase.from('audit_logs') as any).insert({
           performed_by: user.id,
           action: 'delete',
           target_type: 'tenant',
@@ -332,8 +331,8 @@ class AdminService {
       return await this.invoke('get-settings');
     } catch (err) {
       console.warn('Edge Function get-settings failed, falling back to direct DB query:', err);
-      const { data, error } = await supabase
-        .from('platform_settings')
+      const { data, error } = await (supabase.from('platform_settings') as any)
+        .select()
         .eq('id', 'global')
         .maybeSingle();
       if (error) throw error;
@@ -353,8 +352,7 @@ class AdminService {
           default_meta_phone_id: '',
           feature_flags: {}
         };
-        const { data: seeded, error: seedError } = await supabase
-          .from('platform_settings')
+        const { data: seeded, error: seedError } = await (supabase.from('platform_settings') as any)
           .insert(defaultSettings)
           .select()
           .single();
@@ -389,8 +387,7 @@ class AdminService {
       return await this.invoke('update-settings', { settings });
     } catch (err) {
       console.warn('Edge Function update-settings failed, falling back to direct DB query:', err);
-      const { data, error } = await supabase
-        .from('platform_settings')
+      const { data, error } = await (supabase.from('platform_settings') as any)
         .update({
           ...settings,
           updated_at: new Date().toISOString()
@@ -402,10 +399,12 @@ class AdminService {
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.from('audit_logs').insert({
+        await (supabase.from('audit_logs') as any).insert({
           performed_by: user.id,
           action: 'update',
           target_type: 'tenant',
+          target_id: 'global',
+          target_tenant: 'global',
           metadata: { original_action: 'update-settings', changes: Object.keys(settings) }
         });
       }
