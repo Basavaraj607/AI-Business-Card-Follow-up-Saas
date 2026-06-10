@@ -10,166 +10,212 @@ import imageCompression from 'browser-image-compression';
 import Tesseract from 'tesseract.js';
 import { 
   Camera, Upload, Sparkles, Loader2, ArrowLeft, 
-  CheckCircle, RefreshCw, Key, ShieldAlert
+  CheckCircle, RefreshCw, Key, ShieldAlert, Trash2, ListOrdered, FileImage
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type ActiveTab = 'camera' | 'upload';
-type StepId = 'idle' | 'compress' | 'ocr' | 'parse' | 'review';
-
-interface ProcessingStep {
-  id: StepId;
-  label: string;
-  sub: string;
-  status: 'idle' | 'loading' | 'done' | 'error';
+interface QueueItem {
+  id: string;
+  file: File;
+  localFileUrl: string;
+  status: 'pending' | 'compressing' | 'scanning' | 'parsing' | 'ready' | 'saved' | 'failed';
+  progress: number;
+  error?: string;
+  ocrText?: string;
+  uploadedPath?: string;
+  parsedData: ParsedContact | null;
 }
 
 export function UploadPage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<ActiveTab>('camera');
-  const [currentStep, setCurrentStep] = useState<StepId>('idle');
-  
-  // OCR & Upload files & paths
-  const [localFileUrl, setLocalFileUrl] = useState<string>('');
-  const [uploadedPath, setUploadedPath] = useState<string>('');
-  const [ocrText, setOcrText] = useState<string>('');
-  const [parsedData, setParsedData] = useState<ParsedContact | null>(null);
+  const [activeTab, setActiveTab] = useState<'camera' | 'upload'>('camera');
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
-
-  // Stepper state
-  const [steps, setSteps] = useState<ProcessingStep[]>([
-    { id: 'compress', label: 'Optimize & Upload', sub: 'Compressing and saving to cloud storage', status: 'idle' },
-    { id: 'ocr',      label: 'Local OCR Scan',     sub: 'Extracting text directly in browser', status: 'idle' },
-    { id: 'parse',    label: 'AI Field Parsing',   sub: 'Structuring details into contact card', status: 'idle' },
-  ]);
+  
+  // Batch queue state
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   useEffect(() => {
     const key = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
     setHasApiKey(!!key.trim());
   }, []);
 
-  const updateStepStatus = (id: StepId, status: 'idle' | 'loading' | 'done' | 'error') => {
-    setSteps(prev => prev.map(step => step.id === id ? { ...step, status } : step));
-  };
+  // Revoke object URLs on unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      queue.forEach(item => {
+        if (item.localFileUrl) {
+          URL.revokeObjectURL(item.localFileUrl);
+        }
+      });
+    };
+  }, [queue]);
 
-  const resetSteps = () => {
-    setSteps(prev => prev.map(step => ({ ...step, status: 'idle' })));
-    setCurrentStep('idle');
-    setParsedData(null);
-    setOcrText('');
-    setUploadedPath('');
-    if (localFileUrl) {
-      URL.revokeObjectURL(localFileUrl);
-      setLocalFileUrl('');
+  const addFilesToQueue = (files: File[]) => {
+    const newItems: QueueItem[] = files.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      localFileUrl: URL.createObjectURL(file),
+      status: 'pending',
+      progress: 0,
+      parsedData: null,
+    }));
+
+    setQueue(prev => [...prev, ...newItems]);
+    
+    // Select the first item for review if nothing is currently selected
+    if (newItems.length > 0) {
+      setSelectedItemId(prev => prev || newItems[0].id);
     }
+
+    // Trigger processing for each new item
+    newItems.forEach(item => processQueueItem(item));
   };
 
-  // Main processing pipeline
-  const processCard = async (file: File) => {
-    // 1. Create a local URL for the preview image
-    const previewUrl = URL.createObjectURL(file);
-    setLocalFileUrl(previewUrl);
-    setCurrentStep('compress');
-
+  const processQueueItem = async (item: QueueItem) => {
     const supabase = createClient();
-    let finalCompressedFile = file;
-    let path = '';
+    
+    const updateStatus = (status: QueueItem['status'], progress: number, extra = {}) => {
+      setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status, progress, ...extra } : q));
+    };
 
-    // Step 1: Compress and Upload
-    updateStepStatus('compress', 'loading');
     try {
-      // Compress
-      finalCompressedFile = await imageCompression(file, { 
+      // 1. Optimize & Upload
+      updateStatus('compressing', 15);
+      const compressedFile = await imageCompression(item.file, { 
         maxSizeMB: 1.2, 
         maxWidthOrHeight: 1600,
         useWebWorker: true 
       });
 
-      // Upload to Supabase Storage
-      path = `cards/${crypto.randomUUID()}.jpg`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const path = `cards/${crypto.randomUUID()}.jpg`;
+      const { error: uploadError } = await supabase.storage
         .from('card-images')
-        .upload(path, finalCompressedFile, { cacheControl: '3600', upsert: false });
-
-      console.debug('Supabase storage.upload response:', { uploadData, uploadError });
+        .upload(path, compressedFile, { cacheControl: '3600', upsert: false });
 
       if (uploadError) {
-        console.warn('Storage bucket upload failed, using local fallback:', uploadError);
-        toast.error(`Cloud upload failed: ${uploadError.message || uploadError.details || uploadError}`);
-      } else {
-        setUploadedPath(path);
-        // confirm public URL is available
-        try {
-          const { data: publicData } = supabase.storage.from('card-images').getPublicUrl(path);
-          console.debug('Public URL:', publicData);
-        } catch (e) {
-          console.warn('getPublicUrl failed:', e);
-        }
+        console.warn('Storage upload failed, using local fallback:', uploadError);
       }
-      updateStepStatus('compress', 'done');
-    } catch (err) {
-      console.error('Compression/Upload error:', err);
-      updateStepStatus('compress', 'error');
-      toast.error('Image optimization failed.');
-      return;
-    }
+      
+      const { data } = supabase.storage.from('card-images').getPublicUrl(path);
+      const cardImageUrl = data?.publicUrl || '';
 
-    // Step 2: OCR Scanning
-    setCurrentStep('ocr');
-    updateStepStatus('ocr', 'loading');
-    let extractedText = '';
-    try {
-      const { data: { text } } = await Tesseract.recognize(finalCompressedFile, 'eng');
-      extractedText = text;
-      setOcrText(text);
-
+      // 2. Local OCR Scan
+      updateStatus('scanning', 45);
+      const { data: { text } } = await Tesseract.recognize(compressedFile, 'eng');
+      
       if (!text.trim()) {
-        throw new Error('No text found on card');
+        throw new Error('No readable text found on this business card.');
       }
-      updateStepStatus('ocr', 'done');
-    } catch (err) {
-      console.error('OCR error:', err);
-      updateStepStatus('ocr', 'error');
-      toast.error('Failed to extract text. Make sure card is clear.');
-      return;
-    }
 
-    // Step 3: AI Field Parsing
-    setCurrentStep('parse');
-    updateStepStatus('parse', 'loading');
-    try {
-      const data = await parseCardText(extractedText);
-      setParsedData(data);
-      updateStepStatus('parse', 'done');
-      setCurrentStep('review');
-    } catch (err) {
-      console.error('Parsing error:', err);
-      updateStepStatus('parse', 'error');
-      toast.error('AI contact parsing failed.');
+      // 3. AI Field Parsing
+      updateStatus('parsing', 75);
+      const parsedData = await parseCardText(text);
+      
+      // 4. Ready for review
+      updateStatus('ready', 100, {
+        ocrText: text,
+        uploadedPath: path,
+        parsedData
+      });
+    } catch (err: any) {
+      console.error(`Error processing item ${item.file.name}:`, err);
+      updateStatus('failed', 100, { error: err.message || 'Processing failed' });
+      toast.error(`Failed to process ${item.file.name}`);
     }
   };
+
+  const retryProcessing = (item: QueueItem) => {
+    setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'pending', progress: 0, error: undefined } : q));
+    processQueueItem({ ...item, status: 'pending', progress: 0 });
+  };
+
+  const removeItem = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setQueue(prev => {
+      const filtered = prev.filter(q => q.id !== id);
+      // Revoke preview URL
+      const removed = prev.find(q => q.id === id);
+      if (removed) URL.revokeObjectURL(removed.localFileUrl);
+
+      // Adjust selection if we removed the currently selected item
+      if (selectedItemId === id) {
+        const remainingReady = filtered.find(q => q.status === 'ready' || q.status === 'failed');
+        setSelectedItemId(remainingReady ? remainingReady.id : (filtered[0]?.id || null));
+      }
+      return filtered;
+    });
+  };
+
+  const handleItemSaved = () => {
+    setQueue(prev => {
+      const updated = prev.map(q => q.id === selectedItemId ? { ...q, status: 'saved' as const } : q);
+      
+      // Find the next ready card to auto-advance
+      const nextReady = updated.find(q => q.status === 'ready');
+      if (nextReady) {
+        setSelectedItemId(nextReady.id);
+      } else {
+        // If no ready card, select the next non-saved item
+        const nextPending = updated.find(q => q.status !== 'saved');
+        setSelectedItemId(nextPending ? nextPending.id : null);
+      }
+      return updated;
+    });
+
+    toast.success('Contact saved to CRM!');
+  };
+
+  const clearCompleted = () => {
+    setQueue(prev => {
+      const remaining = prev.filter(q => q.status !== 'saved');
+      const completed = prev.filter(q => q.status === 'saved');
+      completed.forEach(q => URL.revokeObjectURL(q.localFileUrl));
+      
+      if (remaining.length > 0) {
+        setSelectedItemId(remaining[0].id);
+      } else {
+        setSelectedItemId(null);
+      }
+      return remaining;
+    });
+  };
+
+  const resetSteps = () => {
+    queue.forEach(item => {
+      if (item.localFileUrl) {
+        URL.revokeObjectURL(item.localFileUrl);
+      }
+    });
+    setQueue([]);
+    setSelectedItemId(null);
+  };
+
+  const selectedItem = queue.find(q => q.id === selectedItemId);
+  const totalItems = queue.length;
+  const processedCount = queue.filter(q => q.status === 'saved').length;
+  const isQueueEmpty = totalItems === 0;
+  const isAllProcessed = totalItems > 0 && processedCount === totalItems;
 
   return (
     <div className="space-y-6">
       
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/dashboard')} 
-            className="p-2 bg-white border border-gray-100 rounded-lg text-gray-500 hover:text-gray-900 shadow-sm"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Scan Business Card</h1>
-            <p className="text-gray-500 text-sm mt-0.5">Extract information and follow-up in seconds</p>
-          </div>
+      <div className="flex items-center gap-3">
+        <button 
+          onClick={() => navigate('/dashboard')} 
+          className="p-2 bg-white border border-gray-100 rounded-lg text-gray-500 hover:text-gray-900 shadow-sm transition-all"
+        >
+          <ArrowLeft size={16} />
+        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Scan Business Cards</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Capture cards in batches, parse with AI, and review in a queue.</p>
         </div>
       </div>
 
       {/* Settings warning / API Banner if missing */}
-      {!hasApiKey && currentStep === 'idle' && (
+      {!hasApiKey && isQueueEmpty && (
         <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-amber-800">
           <div className="flex items-start gap-3">
             <ShieldAlert size={20} className="text-amber-600 shrink-0 mt-0.5" />
@@ -182,7 +228,7 @@ export function UploadPage() {
           </div>
           <button 
             onClick={() => navigate('/settings')}
-            className="btn-secondary btn-sm bg-white border-amber-200 text-amber-800 hover:bg-amber-100 shrink-0 flex items-center gap-1.5"
+            className="btn-secondary btn-sm bg-white border-amber-200 text-amber-800 hover:bg-amber-100 shrink-0 flex items-center gap-1.5 font-bold"
           >
             <Key size={13} />
             Configure API Key
@@ -190,17 +236,14 @@ export function UploadPage() {
         </div>
       )}
 
-      {/* Processing State */}
-      {currentStep === 'idle' ? (
+      {isQueueEmpty ? (
+        /* ── Idle Stage: Capture Panel ── */
         <div className="grid md:grid-cols-5 gap-6">
-          {/* Main capture pane */}
           <div className="md:col-span-3 card p-6 space-y-6">
-            
-            {/* Tab Toggles */}
             <div className="flex bg-gray-100 p-1 rounded-xl">
               <button
                 onClick={() => setActiveTab('camera')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer
                   ${activeTab === 'camera' 
                     ? 'bg-white text-gray-900 shadow-sm' 
                     : 'text-gray-500 hover:text-gray-800'}`}
@@ -210,169 +253,261 @@ export function UploadPage() {
               </button>
               <button
                 onClick={() => setActiveTab('upload')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer
                   ${activeTab === 'upload' 
                     ? 'bg-white text-gray-900 shadow-sm' 
                     : 'text-gray-500 hover:text-gray-800'}`}
               >
                 <Upload size={14} />
-                Upload Image File
+                Upload Image Files
               </button>
             </div>
 
-            {/* Selection Content */}
-            <div className="min-h-[260px] flex flex-col justify-center">
+            <div className="min-h-[280px] flex flex-col justify-center">
               {activeTab === 'camera' ? (
-                <CardCamera onCapture={processCard} />
+                <CardCamera onCapture={(file) => addFilesToQueue([file])} />
               ) : (
-                <CardUpload onFile={processCard} />
+                <CardUpload onFiles={addFilesToQueue} />
               )}
             </div>
-
           </div>
 
-          {/* Quick instructions pane */}
           <div className="md:col-span-2 card p-6 bg-brand-50/20 border-brand-100/50 space-y-5">
             <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
               <Sparkles size={18} className="text-brand-600" />
-              How it works
+              Batch Scan Mode
             </h3>
             <div className="space-y-4">
               <div className="flex gap-3">
                 <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-800 text-xs font-bold flex items-center justify-center shrink-0">1</div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">Upload or Capture</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Use your mobile/desktop camera or drag an existing card photo.</p>
+                  <p className="text-sm font-semibold text-gray-900">Upload Multiple Files</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Drag-and-drop up to 10 files at once or capture them one after another with your camera.</p>
                 </div>
               </div>
               <div className="flex gap-3">
                 <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-800 text-xs font-bold flex items-center justify-center shrink-0">2</div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">OCR Text Extraction</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Tesseract.js scans the image locally inside your browser to find textual elements.</p>
+                  <p className="text-sm font-semibold text-gray-900">Concurrent Extraction</p>
+                  <p className="text-xs text-gray-500 mt-0.5">The engine compresses, uploads, OCRs, and parses all cards in parallel background tasks.</p>
                 </div>
               </div>
               <div className="flex gap-3">
                 <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-800 text-xs font-bold flex items-center justify-center shrink-0">3</div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">AI Parsing (Gemini)</p>
-                  <p className="text-xs text-gray-500 mt-0.5">The OCR text is structured into fields like Name, Title, and Email instantly.</p>
+                  <p className="text-sm font-semibold text-gray-900">Verify & Save Queue</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Review the structured details side-by-side, tweak values, and click save to load the next card.</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      ) : currentStep !== 'review' ? (
-        
-        /* Loading Stepper Wizard */
-        <div className="card p-8 max-w-xl mx-auto space-y-8">
-          <div className="text-center space-y-2">
-            <Loader2 size={36} className="text-brand-500 animate-spin mx-auto" />
-            <h2 className="text-lg font-bold text-gray-900">Processing Business Card</h2>
-            <p className="text-xs text-gray-500">Scanning details... please do not close the window.</p>
+      ) : isAllProcessed ? (
+        /* ── Batch Complete Celebration Stage ── */
+        <div className="card p-12 max-w-xl mx-auto text-center space-y-6 animate-fade-in">
+          <div className="w-20 h-20 bg-brand-50 text-brand-600 border border-brand-100 rounded-full flex items-center justify-center mx-auto shadow-sm">
+            <CheckCircle size={40} className="text-brand-500" />
           </div>
-
-          <div className="space-y-4">
-            {steps.map((step) => (
-              <div 
-                key={step.id} 
-                className={`flex gap-4 p-4 rounded-xl border transition-all duration-200
-                  ${step.status === 'loading' ? 'bg-brand-50/30 border-brand-100 shadow-sm' : 'bg-white border-gray-100'}
-                  ${step.status === 'error' ? 'bg-red-50/30 border-red-100' : ''}
-                `}
-              >
-                <div className="flex items-center justify-center shrink-0">
-                  {step.status === 'idle' && (
-                    <div className="w-6 h-6 rounded-full border border-gray-200" />
-                  )}
-                  {step.status === 'loading' && (
-                    <div className="w-6 h-6 flex items-center justify-center">
-                      <Loader2 size={16} className="text-brand-500 animate-spin" />
-                    </div>
-                  )}
-                  {step.status === 'done' && (
-                    <div className="w-6 h-6 bg-brand-100 text-brand-800 rounded-full flex items-center justify-center">
-                      <CheckCircle size={16} className="text-brand-600" />
-                    </div>
-                  )}
-                  {step.status === 'error' && (
-                    <div className="w-6 h-6 bg-red-100 text-red-800 rounded-full flex items-center justify-center">
-                      <ShieldAlert size={16} className="text-red-600" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-semibold 
-                    ${step.status === 'loading' ? 'text-brand-800 font-bold' : 'text-gray-800'}
-                    ${step.status === 'error' ? 'text-red-800' : ''}
-                  `}>
-                    {step.label}
-                  </p>
-                  <p className="text-xs text-gray-500 truncate mt-0.5">{step.sub}</p>
-                </div>
-              </div>
-            ))}
+          <div className="space-y-2">
+            <h2 className="text-2xl font-extrabold text-gray-900">Batch Processing Complete! 🎉</h2>
+            <p className="text-sm text-gray-500 max-w-md mx-auto">
+              You have successfully scanned, verified, and saved all <strong>{totalItems}</strong> business cards directly into your CRM database.
+            </p>
           </div>
-
-          {steps.some(s => s.status === 'error') && (
-            <button
-              onClick={resetSteps}
-              className="w-full btn-secondary py-2.5 flex items-center justify-center gap-2 hover:bg-gray-100"
+          <div className="flex flex-col sm:flex-row gap-3 pt-4 justify-center">
+            <button 
+              onClick={() => navigate('/contacts')} 
+              className="btn-primary py-3 px-6 rounded-xl font-bold shadow-md hover:shadow-lg transition-all"
             >
-              <RefreshCw size={14} />
-              Try scanning again
+              View Saved Contacts
             </button>
-          )}
+            <button 
+              onClick={resetSteps} 
+              className="btn-secondary py-3 px-6 rounded-xl font-bold hover:bg-gray-50 transition-all"
+            >
+              Scan More Cards
+            </button>
+          </div>
         </div>
       ) : (
-        
-        /* Step 4: Side-by-Side Review Stage */
-        <div className="grid lg:grid-cols-5 gap-8">
-          {/* Card Preview Column */}
+        /* ── Batch Queue Review Workspace Stage ── */
+        <div className="grid lg:grid-cols-5 gap-8 items-start">
+          
+          {/* Left Panel: Queue Status List */}
           <div className="lg:col-span-2 space-y-4">
-            <h3 className="font-semibold text-gray-900 text-sm">Business Card Photo</h3>
-            <div className="card p-2 bg-gray-100 rounded-xl overflow-hidden shadow-md flex items-center justify-center max-h-[300px] lg:max-h-none lg:aspect-square">
-              {localFileUrl ? (
-                <img 
-                  src={localFileUrl} 
-                  alt="Scanned Business Card" 
-                  className="w-full h-full object-contain rounded-lg hover:scale-105 transition-transform duration-300"
-                />
-              ) : (
-                <div className="p-8 text-center text-gray-400">Card Photo Preview</div>
+            <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+              <h3 className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
+                <ListOrdered size={16} className="text-indigo-500" />
+                Upload Queue ({processedCount}/{totalItems})
+              </h3>
+              {processedCount > 0 && (
+                <button 
+                  onClick={clearCompleted}
+                  className="text-xs text-gray-400 hover:text-red-500 font-bold transition-colors"
+                >
+                  Clear Saved
+                </button>
               )}
             </div>
-            
-            <button
-              onClick={resetSteps}
-              className="btn-secondary btn-sm w-full py-2.5 flex items-center justify-center gap-2 hover:bg-gray-100"
-            >
-              <RefreshCw size={12} />
-              Re-scan different card
-            </button>
+
+            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+              {queue.map(item => {
+                const isSelected = item.id === selectedItemId;
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedItemId(item.id)}
+                    className={`card p-3 flex items-center gap-3 cursor-pointer transition-all border outline-none
+                      ${isSelected 
+                        ? 'border-brand-500 bg-brand-50/20 shadow-sm ring-1 ring-brand-400' 
+                        : 'border-gray-150 hover:bg-gray-50'
+                      }
+                      ${item.status === 'saved' ? 'opacity-60 border-green-200 bg-green-50/10' : ''}
+                      ${item.status === 'failed' ? 'border-red-200 bg-red-50/10' : ''}
+                    `}
+                  >
+                    {/* Tiny Thumbnail */}
+                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 shrink-0 flex items-center justify-center relative">
+                      <img 
+                        src={item.localFileUrl} 
+                        alt="Preview" 
+                        className="w-full h-full object-cover" 
+                      />
+                      {item.status === 'saved' && (
+                        <div className="absolute inset-0 bg-brand-500/80 flex items-center justify-center text-white">
+                          <CheckCircle size={16} />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-bold text-gray-800 truncate">{item.file.name}</p>
+                        <button 
+                          onClick={(e) => removeItem(item.id, e)}
+                          className="text-gray-400 hover:text-red-500 shrink-0 transition-colors p-0.5"
+                          title="Remove from queue"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+
+                      {/* Status / Progress Indicator */}
+                      <div className="flex items-center gap-2">
+                        {item.status === 'pending' && <span className="text-[10px] text-gray-400 font-medium animate-pulse">Pending...</span>}
+                        {item.status === 'compressing' && <span className="text-[10px] text-indigo-500 font-bold">Uploading...</span>}
+                        {item.status === 'scanning' && <span className="text-[10px] text-violet-500 font-bold">Local OCR Scan...</span>}
+                        {item.status === 'parsing' && <span className="text-[10px] text-pink-500 font-bold">AI Parsing...</span>}
+                        {item.status === 'ready' && <span className="text-[10px] text-brand-600 font-bold flex items-center gap-0.5"><Sparkles size={10} /> Ready to Review</span>}
+                        {item.status === 'saved' && <span className="text-[10px] text-green-600 font-bold">Saved ✅</span>}
+                        {item.status === 'failed' && <span className="text-[10px] text-red-600 font-bold">Failed ⚠️</span>}
+
+                        {item.status !== 'ready' && item.status !== 'saved' && item.status !== 'failed' && item.status !== 'pending' && (
+                          <div className="flex-1 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-brand-500 h-full transition-all duration-300" style={{ width: `${item.progress}%` }}></div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Quick Camera snapping add-on */}
+            <div className="border-t border-gray-100 pt-4 space-y-3">
+              <div className="flex bg-gray-100 p-0.5 rounded-lg">
+                <button 
+                  onClick={() => addFilesToQueue([])} // Trigger file browser via dropzone if needed, but we can display camera
+                  className="flex-1 text-center py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center justify-center gap-1.5"
+                >
+                  <Camera size={14} /> Add snap
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Form details Column */}
+          {/* Right Panel: Workspace (Selected Item Review / Loading) */}
           <div className="lg:col-span-3 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900 text-sm">Confirm Parsed Information</h3>
-              <span className="badge badge-green flex items-center gap-1.5">
-                <Sparkles size={11} className="text-brand-600 animate-pulse" />
-                AI Structured
-              </span>
-            </div>
-            
-            <div className="card p-6 shadow-md bg-white">
-              {parsedData && (
-                <ContactReview 
-                  initial={parsedData} 
-                  rawOcrText={ocrText} 
-                  cardImagePath={uploadedPath} 
-                />
-              )}
-            </div>
+            {selectedItem ? (
+              <>
+                <div className="flex items-center justify-between border-b border-gray-150 pb-2">
+                  <h3 className="font-bold text-gray-900 text-sm">Review Workspace</h3>
+                  <div className="text-xs text-gray-400 font-semibold">
+                    File: <span className="text-gray-600 font-mono text-[10px]">{selectedItem.file.name}</span>
+                  </div>
+                </div>
+
+                {/* Processing State */}
+                {selectedItem.status === 'saved' ? (
+                  <div className="card p-12 bg-green-50/10 border-green-200 text-center space-y-3">
+                    <CheckCircle size={32} className="text-green-500 mx-auto" />
+                    <h3 className="font-bold text-gray-800 text-sm">Contact Saved Successfully!</h3>
+                    <p className="text-xs text-gray-500 max-w-xs mx-auto">
+                      This card details were compiled and saved to Supabase CRM. Select another card in the queue to continue.
+                    </p>
+                  </div>
+                ) : selectedItem.status === 'failed' ? (
+                  <div className="card p-8 bg-red-50/10 border-red-200 text-center space-y-4">
+                    <ShieldAlert size={32} className="text-red-500 mx-auto" />
+                    <h3 className="font-bold text-gray-800 text-sm">Processing Failure</h3>
+                    <p className="text-xs text-red-700 max-w-xs mx-auto">
+                      {selectedItem.error || 'An unexpected error occurred during OCR or AI parsing.'}
+                    </p>
+                    <button
+                      onClick={() => retryProcessing(selectedItem)}
+                      className="btn-secondary btn-sm mx-auto flex items-center gap-1 hover:bg-gray-50 font-bold"
+                    >
+                      <RefreshCw size={12} /> Retry Card
+                    </button>
+                  </div>
+                ) : selectedItem.status !== 'ready' ? (
+                  /* Loading display */
+                  <div className="card p-12 text-center space-y-4 bg-gray-50/30">
+                    <Loader2 size={28} className="animate-spin text-brand-500 mx-auto" />
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-gray-800 text-sm">
+                        {selectedItem.status === 'compressing' && 'Optimizing Image...'}
+                        {selectedItem.status === 'scanning' && 'Extracting OCR Text...'}
+                        {selectedItem.status === 'parsing' && 'AI Field Structuring...'}
+                        {selectedItem.status === 'pending' && 'Queueing...'}
+                      </h4>
+                      <p className="text-xs text-gray-400">Processing background pipeline. Stand by...</p>
+                    </div>
+                  </div>
+                ) : (
+                  /* Review Form loaded with custom values */
+                  <div className="grid grid-cols-1 gap-6">
+                    {/* Visual Card Image preview header */}
+                    <div className="card overflow-hidden p-2 bg-gray-50 flex items-center justify-center max-h-[140px]">
+                      <img 
+                        src={selectedItem.localFileUrl} 
+                        alt="Card" 
+                        className="max-h-[120px] object-contain rounded-lg shadow-sm"
+                      />
+                    </div>
+
+                    <div className="card p-6 shadow-sm bg-white">
+                      {selectedItem.parsedData && (
+                        <ContactReview 
+                          initial={selectedItem.parsedData} 
+                          rawOcrText={selectedItem.ocrText || ''} 
+                          cardImagePath={selectedItem.uploadedPath || ''} 
+                          onSave={handleItemSaved}
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="card p-12 text-center text-gray-400 text-sm flex flex-col items-center justify-center gap-3">
+                <FileImage size={28} />
+                <span>Select a processing card from the queue sidebar to review.</span>
+              </div>
+            )}
           </div>
+
         </div>
       )}
     </div>
