@@ -132,12 +132,13 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
         is_archived: false
       };
 
-      const { data: inserted, error } = await supabase
-        .from('contacts')
-        .insert(contactPayload)
-        .select();
+      const query = contact.id
+        ? supabase.from('contacts').update(contactPayload).eq('id', contact.id)
+        : supabase.from('contacts').insert(contactPayload);
 
-      console.debug('Supabase insert response:', { inserted, error });
+      const { data: inserted, error } = await query.select();
+
+      console.debug('Supabase save response:', { inserted, error });
 
       if (error) throw error;
 
@@ -160,8 +161,12 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
           await supabase.from('tenants').upsert({ id: tenantId, name: user.email ?? 'Workspace', slug: emailSlug, owner_id: user.id }, { onConflict: 'id' })
           await supabase.from('profiles').upsert({ id: user.id, tenant_id: tenantId, full_name: user.user_metadata?.full_name ?? user.email ?? 'User', email: user.email }, { onConflict: 'id' })
           
-          // retry insert
-          const { data: retried, error: retryError } = await supabase.from('contacts').insert(contactPayload).select()
+          // retry save
+          const retryQuery = contact.id
+            ? supabase.from('contacts').update(contactPayload).eq('id', contact.id)
+            : supabase.from('contacts').insert(contactPayload);
+
+          const { data: retried, error: retryError } = await retryQuery.select();
           console.debug('Retry insert response:', { retried, retryError })
           if (!retryError) {
             toast.success('Contact scanned and saved!');

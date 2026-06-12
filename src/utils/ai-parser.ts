@@ -1,6 +1,7 @@
 // utils/ai-parser.ts
 
 export interface ParsedContact {
+  id?: string;
   name: string;
   email: string;
   phone: string;
@@ -14,68 +15,10 @@ export interface ParsedContact {
 }
 
 /**
- * Parses raw OCR text from a business card using Gemini API or a regex fallback.
+ * Parses raw OCR text from a business card using a local regex fallback.
+ * Direct client-side Gemini API calls have been removed to prevent API key exposure.
  */
 export async function parseCardText(ocrText: string): Promise<ParsedContact> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
-
-  if (apiKey.trim()) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `Extract contact details from the following raw OCR text of a business card. Look for full name, email address, phone number, company name, job title, website url, and LinkedIn profile URL. If a field cannot be found, set it to an empty string. Format the output as JSON according to the schema.
-                    
-OCR Text:
-${ocrText}`,
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              responseSchema: {
-                type: 'OBJECT',
-                properties: {
-                  name: { type: 'STRING', description: 'Full name of the contact' },
-                  email: { type: 'STRING', description: 'Email address' },
-                  phone: { type: 'STRING', description: 'Phone number' },
-                  company: { type: 'STRING', description: 'Company name' },
-                  title: { type: 'STRING', description: 'Job title' },
-                  website: { type: 'STRING', description: 'Company website URL' },
-                  linkedin: { type: 'STRING', description: 'LinkedIn URL or handle' },
-                },
-                required: ['name'],
-              },
-            },
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (textResult) {
-        return JSON.parse(textResult) as ParsedContact;
-      }
-    } catch (error) {
-      console.warn('Gemini parsing failed, falling back to regex parser:', error);
-    }
-  }
-
-  // Fallback to regex parser
   return regexParseCardText(ocrText);
 }
 

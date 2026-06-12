@@ -23,6 +23,7 @@ interface QueueItem {
   error?: string;
   ocrText?: string;
   uploadedPath?: string;
+  dbContactId?: string;
   parsedData: ParsedContact | null;
 }
 
@@ -108,14 +109,48 @@ export function UploadPage() {
         throw new Error('No readable text found on this business card.');
       }
 
-      // 3. AI Field Parsing
+      // 3. AI Field Parsing via Server-Side Edge Function
       updateStatus('parsing', 75);
-      const parsedData = await parseCardText(text);
+      let parsedData: ParsedContact;
+      let dbContactId: string | undefined;
+
+      try {
+        const { data: contactRecord, error: extractError } = await supabase.functions.invoke('extract', {
+          body: {
+            storagePath: path,
+            text: text
+          }
+        });
+
+        if (extractError || !contactRecord) {
+          throw new Error(extractError?.message || 'Failed to extract contact details via Edge Function');
+        }
+
+        dbContactId = contactRecord.id;
+        parsedData = {
+          id: contactRecord.id,
+          name: contactRecord.full_name || '',
+          email: contactRecord.email || '',
+          phone: contactRecord.phone || '',
+          company: contactRecord.ai_structured?.company || contactRecord.company_id || '',
+          title: contactRecord.role || '',
+          website: contactRecord.ai_structured?.website || '',
+          linkedin: contactRecord.ai_structured?.linkedin || contactRecord.linkedin_url || '',
+          notes: contactRecord.context_notes || '',
+          lead_status: contactRecord.lead_status || 'warm',
+        };
+      } catch (extractErr) {
+        console.warn('Edge Function extraction failed, falling back to local regex parser:', extractErr);
+        // Fallback to local regex-based parsing
+        const localParsed = await parseCardText(text);
+        parsedData = localParsed;
+      }
       
       // 4. Ready for review
       updateStatus('ready', 100, {
         ocrText: text,
         uploadedPath: path,
+        dbContactId,
         parsedData
       });
     } catch (err: any) {
@@ -130,13 +165,14 @@ export function UploadPage() {
     processQueueItem({ ...item, status: 'pending', progress: 0 });
   };
 
-  const removeItem = (id: string, e: React.MouseEvent) => {
+  const removeItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const itemToRemove = queue.find(q => q.id === id);
+
     setQueue(prev => {
       const filtered = prev.filter(q => q.id !== id);
       // Revoke preview URL
-      const removed = prev.find(q => q.id === id);
-      if (removed) URL.revokeObjectURL(removed.localFileUrl);
+      if (itemToRemove) URL.revokeObjectURL(itemToRemove.localFileUrl);
 
       // Adjust selection if we removed the currently selected item
       if (selectedItemId === id) {
@@ -145,6 +181,21 @@ export function UploadPage() {
       }
       return filtered;
     });
+
+    if (itemToRemove?.dbContactId) {
+      try {
+        const supabase = createClient();
+        const { error } = await supabase
+          .from('contacts')
+          .delete()
+          .eq('id', itemToRemove.dbContactId);
+        
+        if (error) throw error;
+        toast.success('Removed card and deleted database draft.');
+      } catch (err) {
+        console.warn('Failed to delete contact draft from database:', err);
+      }
+    }
   };
 
   const handleItemSaved = () => {
