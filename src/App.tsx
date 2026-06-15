@@ -6,6 +6,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ContactsPage } from './pages/ContactsPage'
 import { UploadPage } from './pages/UploadPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { FollowupsPage } from './pages/FollowupsPage'
 import { AdminOverviewPage } from './pages/admin/AdminOverviewPage'
 import { AdminTenantsPage } from './pages/admin/AdminTenantsPage'
 import { AdminTenantDetailPage } from './pages/admin/AdminTenantDetailPage'
@@ -25,6 +26,7 @@ export function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/contacts" element={<ContactsPage />} />
             <Route path="/contacts/upload" element={<UploadPage />} />
+            <Route path="/followups" element={<FollowupsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             
             {/* Super Admin Console */}

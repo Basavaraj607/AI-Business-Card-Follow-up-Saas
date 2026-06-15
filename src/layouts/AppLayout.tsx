@@ -10,15 +10,18 @@ import {
   Menu, 
   X,
   CreditCard,
-  Shield
+  Shield,
+  CalendarClock
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
+import { useFollowups } from '../hooks/useFollowups';
 import toast from 'react-hot-toast';
 
 export function AppLayout() {
   const { user, userType, impersonatedUser, impersonateUser, signOut } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { todayCount } = useFollowups();
 
   const name = user?.user_metadata?.full_name ?? user?.email ?? 'User';
   const email = user?.email ?? '';
@@ -36,14 +39,15 @@ export function AppLayout() {
   };
 
   const navItems = [
-    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/contacts', label: 'Contacts', icon: Users },
-    { to: '/contacts/upload', label: 'Scan Card', icon: PlusCircle },
-    { to: '/settings', label: 'Settings', icon: Settings },
+    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, badge: 0 },
+    { to: '/contacts',  label: 'Contacts',  icon: Users,           badge: 0 },
+    { to: '/followups', label: 'Follow-ups',icon: CalendarClock,   badge: todayCount },
+    { to: '/contacts/upload', label: 'Scan Card', icon: PlusCircle, badge: 0 },
+    { to: '/settings',  label: 'Settings',  icon: Settings,        badge: 0 },
   ];
 
   if (userType === 'superadmin') {
-    navItems.push({ to: '/admin', label: 'Admin Panel', icon: Shield });
+    navItems.push({ to: '/admin', label: 'Admin Panel', icon: Shield, badge: 0 });
   }
 
   return (
@@ -87,6 +91,11 @@ export function AppLayout() {
               >
                 <item.icon size={18} />
                 {item.label}
+                {item.badge > 0 && (
+                  <span className="ml-auto min-w-[20px] h-5 px-1 rounded-full bg-brand-400 text-white text-[10px] font-bold flex items-center justify-center">
+                    {item.badge}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -143,6 +152,11 @@ export function AppLayout() {
                   >
                     <item.icon size={18} />
                     {item.label}
+                    {item.badge > 0 && (
+                      <span className="ml-auto min-w-[20px] h-5 px-1 rounded-full bg-brand-400 text-white text-[10px] font-bold flex items-center justify-center">
+                        {item.badge}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </nav>
