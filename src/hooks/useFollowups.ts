@@ -209,8 +209,7 @@ export function useFollowups() {
 
   // ── Mark follow-up as done ────────────────────────────────────────────────
   const markDone = useCallback(async (id: string) => {
-    const { error } = await supabase
-      .from('followups')
+    const { error } = await (supabase.from('followups') as any)
       .update({ status: 'done', completed_at: new Date().toISOString() })
       .eq('id', id);
 
@@ -222,8 +221,7 @@ export function useFollowups() {
 
   // ── Skip a follow-up ──────────────────────────────────────────────────────
   const skipFollowup = useCallback(async (id: string) => {
-    const { error } = await supabase
-      .from('followups')
+    const { error } = await (supabase.from('followups') as any)
       .update({ status: 'skipped' })
       .eq('id', id);
 
@@ -235,8 +233,7 @@ export function useFollowups() {
 
   // ── Update draft ──────────────────────────────────────────────────────────
   const updateDraft = useCallback(async (id: string, message_draft: string, subject_draft?: string) => {
-    const { error } = await supabase
-      .from('followups')
+    const { error } = await (supabase.from('followups') as any)
       .update({ message_draft, subject_draft })
       .eq('id', id);
 
@@ -251,8 +248,7 @@ export function useFollowups() {
   const createFollowup = useCallback(async (payload: CreateFollowupPayload) => {
     if (!user || !tenantId) throw new Error('Not authenticated');
 
-    const { data, error } = await supabase
-      .from('followups')
+    const { data, error } = await (supabase.from('followups') as any)
       .insert({
         tenant_id:     tenantId,
         contact_id:    payload.contact_id,
