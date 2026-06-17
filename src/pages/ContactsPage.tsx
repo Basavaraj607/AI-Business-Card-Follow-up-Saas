@@ -564,7 +564,7 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
             return (
               <div 
                 key={contact.id} 
-                onClick={() => handleSelectContact(contact)}
+                onClick={() => navigate(`/contacts/${contact.id}`)}
                 className="card p-5 cursor-pointer card-hover border-gray-100 flex flex-col justify-between min-h-[190px] relative overflow-hidden group"
               >
                 {/* Status Indicator Stripe */}
@@ -619,9 +619,9 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
                   </div>
                   <div className="flex items-center gap-2">
                     <button 
-                      className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                      onClick={(e) => { e.stopPropagation(); handleSelectContact(contact); }}
-                      title="Inspect"
+                      className="p-1 rounded-md text-gray-400 hover:text-brand-600 hover:bg-brand-50"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/contacts/${contact.id}`); }}
+                      title="View Profile"
                     >
                       <Eye size={14} />
                     </button>
