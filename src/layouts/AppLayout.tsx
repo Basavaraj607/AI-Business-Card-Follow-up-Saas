@@ -39,11 +39,11 @@ export function AppLayout() {
   };
 
   const navItems = [
-    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, badge: 0 },
-    { to: '/contacts',  label: 'Contacts',  icon: Users,           badge: 0 },
-    { to: '/followups', label: 'Follow-ups',icon: CalendarClock,   badge: todayCount },
+    { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard, badge: 0 },
+    { to: '/contacts',  label: 'Contacts',   icon: Users,           badge: 0 },
+    { to: '/followups', label: 'Follow-ups', icon: CalendarClock,   badge: todayCount },
     { to: '/contacts/upload', label: 'Scan Card', icon: PlusCircle, badge: 0 },
-    { to: '/settings',  label: 'Settings',  icon: Settings,        badge: 0 },
+    { to: '/settings',  label: 'Settings',   icon: Settings,        badge: 0 },
   ];
 
   if (userType === 'superadmin') {
