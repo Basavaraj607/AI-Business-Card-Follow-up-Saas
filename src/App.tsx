@@ -4,6 +4,7 @@ import { AuthProvider } from './lib/auth-context'
 import { LoginPage } from './pages/Login_Page'
 import { DashboardPage } from './pages/DashboardPage'
 import { ContactsPage } from './pages/ContactsPage'
+import { ContactDetailPage } from './pages/ContactDetailPage'
 import { UploadPage } from './pages/UploadPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { FollowupsPage } from './pages/FollowupsPage'
@@ -25,6 +26,7 @@ export function App() {
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/contacts" element={<ContactsPage />} />
+            <Route path="/contacts/:id" element={<ContactDetailPage />} />
             <Route path="/contacts/upload" element={<UploadPage />} />
             <Route path="/followups" element={<FollowupsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
