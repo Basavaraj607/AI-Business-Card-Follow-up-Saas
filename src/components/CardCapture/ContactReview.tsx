@@ -5,7 +5,7 @@ import { createClient } from '../../lib/supabase/client';
 import { useAuth } from '../../lib/auth-context';
 import { 
   User, Mail, Phone, Building, Briefcase, Globe,
-  FileText, Sparkles, Save
+  FileText, Sparkles, Save, Calendar
 } from 'lucide-react';
 
 const Linkedin = (props: any) => (
@@ -29,6 +29,16 @@ const Linkedin = (props: any) => (
 import toast from 'react-hot-toast';
 import { ParsedContact } from '../../utils/ai-parser';
 
+const formatDropdownDate = (startStr: string) => {
+  if (!startStr) return '';
+  try {
+    const date = new Date(startStr);
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch (e) {
+    return '';
+  }
+};
+
 interface Props {
   initial: ParsedContact;
   onSave?: () => void;
@@ -43,6 +53,34 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
   const [notes, setNotes] = useState('');
   const [tone, setTone] = useState<'casual' | 'formal' | 'sales' | 'partner'>('casual');
   const [saving, setSaving] = useState(false);
+  const [approvedEvents, setApprovedEvents] = useState<any[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('event_id') || '';
+  });
+  const supabase = createClient();
+  const tenantId = authTenantId ?? user?.user_metadata?.tenant_id ?? user?.id;
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const fetchEvents = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('events')
+          .select('id, title, start_time, location')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'approved')
+          .order('title', { ascending: true });
+        
+        if (!error && data) {
+          setApprovedEvents(data);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch events for contact review:', err);
+      }
+    };
+    fetchEvents();
+  }, [tenantId]);
 
   const update = (field: string, value: string) =>
     setContact(prev => ({ ...prev, [field]: value }));
@@ -129,7 +167,8 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
         lead_status: leadStatus,
         met_at_date: new Date().toISOString().split('T')[0], // yyyy-mm-dd
         tags: [tone],
-        is_archived: false
+        is_archived: false,
+        event_id: selectedEventId || null
       };
 
       const query = contact.id
@@ -231,6 +270,28 @@ export function ContactReview({ initial, onSave, rawOcrText = '', cardImagePath 
                      focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/20 transition-all placeholder:text-gray-400"
         />
       </div>
+
+      {approvedEvents.length > 0 && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-gray-500 flex items-center gap-1.5">
+            <Calendar size={13} className="text-gray-400" />
+            Tag this contact to an event
+          </label>
+          <select
+            value={selectedEventId}
+            onChange={e => setSelectedEventId(e.target.value)}
+            className="w-full text-sm border border-gray-200 rounded-xl p-3 bg-white
+                       focus:outline-none focus:border-brand-400 font-medium cursor-pointer"
+          >
+            <option value="">-- No Event --</option>
+            {approvedEvents.map(e => (
+              <option key={e.id} value={e.id}>
+                {e.title} — {formatDropdownDate(e.start_time)}, {e.location}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="space-y-2">
         <label className="text-xs font-semibold text-gray-500 flex items-center gap-1.5">
