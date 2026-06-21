@@ -186,7 +186,7 @@ export function AuthProvider({
             tenant_id: tenantId, 
             full_name: user.user_metadata?.full_name ?? user.email ?? 'User', 
             email: user.email,
-            phone: user.user_metadata?.phone ?? user.phone ?? null
+            sender_phone: user.user_metadata?.phone ?? user.phone ?? null
           }, { onConflict: 'id' })
 
         if (profileError) {
