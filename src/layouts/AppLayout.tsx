@@ -11,14 +11,16 @@ import {
   X,
   CreditCard,
   Shield,
-  CalendarClock
+  CalendarClock,
+  Calendar,
+  CalendarCheck
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { useFollowups } from '../hooks/useFollowups';
 import toast from 'react-hot-toast';
 
 export function AppLayout() {
-  const { user, userType, impersonatedUser, impersonateUser, signOut } = useAuth();
+  const { user, role, userType, impersonatedUser, impersonateUser, signOut } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { todayCount } = useFollowups();
@@ -38,13 +40,20 @@ export function AppLayout() {
     }
   };
 
+  const showManageEvents = role === 'admin' || role === 'owner' || userType === 'superadmin' || userType === 'admin';
+
   const navItems = [
     { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard, badge: 0 },
     { to: '/contacts',  label: 'Contacts',   icon: Users,           badge: 0 },
+    { to: '/events',    label: 'Events',     icon: Calendar,        badge: 0 },
     { to: '/followups', label: 'Follow-ups', icon: CalendarClock,   badge: todayCount },
     { to: '/contacts/upload', label: 'Scan Card', icon: PlusCircle, badge: 0 },
     { to: '/settings',  label: 'Settings',   icon: Settings,        badge: 0 },
   ];
+
+  if (showManageEvents) {
+    navItems.push({ to: '/admin/events', label: 'Manage Events', icon: CalendarCheck, badge: 0 });
+  }
 
   if (userType === 'superadmin') {
     navItems.push({ to: '/admin', label: 'Admin Panel', icon: Shield, badge: 0 });
