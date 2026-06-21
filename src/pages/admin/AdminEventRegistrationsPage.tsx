@@ -86,24 +86,26 @@ export function AdminEventRegistrationsPage() {
 
   // 4. Fetch all profiles in the tenant for the search widget
   const { data: tenantProfiles = [] } = useQuery<Profile[]>({
-    queryKey: ['tenant-profiles', tenantId],
+    queryKey: ['tenant-profiles', event?.tenant_id || tenantId],
     queryFn: async () => {
-      if (!tenantId) return [];
+      const targetTenantId = event?.tenant_id || tenantId;
+      if (!targetTenantId) return [];
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, email')
-        .eq('tenant_id', tenantId);
+        .eq('tenant_id', targetTenantId);
       
       if (error) throw error;
       return data || [];
     },
-    enabled: !!tenantId && isAdmin,
+    enabled: !!(event?.tenant_id || tenantId) && isAdmin,
   });
 
   // 5. Add Registration Mutation
   const addRegistrationMutation = useMutation({
     mutationFn: async (userId: string) => {
-      if (!tenantId || !eventId) throw new Error('Parameters missing');
+      const targetTenantId = event?.tenant_id || tenantId;
+      if (!targetTenantId || !eventId) throw new Error('Parameters missing');
       
       // Check if registration already exists
       const existing = registrations.find(r => r.user_id === userId);
@@ -122,7 +124,7 @@ export function AdminEventRegistrationsPage() {
         const { error } = await supabase
           .from('event_registrations')
           .insert({
-            tenant_id: tenantId,
+            tenant_id: targetTenantId,
             event_id: eventId,
             user_id: userId,
             registration_status: 'registered',
@@ -132,11 +134,12 @@ export function AdminEventRegistrationsPage() {
       }
     },
     onSuccess: () => {
+      const targetTenantId = event?.tenant_id || tenantId;
       toast.success('User registered successfully!');
       setSelectedProfileId('');
       setSearchTerm('');
       queryClient.invalidateQueries({ queryKey: ['admin-event-registrations', eventId] });
-      queryClient.invalidateQueries({ queryKey: ['registrations', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['registrations', targetTenantId] });
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to register user');
@@ -155,9 +158,10 @@ export function AdminEventRegistrationsPage() {
       if (error) throw error;
     },
     onSuccess: () => {
+      const targetTenantId = event?.tenant_id || tenantId;
       toast.success('Registration removed successfully.');
       queryClient.invalidateQueries({ queryKey: ['admin-event-registrations', eventId] });
-      queryClient.invalidateQueries({ queryKey: ['registrations', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['registrations', targetTenantId] });
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to remove registration');
