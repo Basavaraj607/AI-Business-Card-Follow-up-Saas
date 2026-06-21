@@ -54,19 +54,23 @@ export function AdminEventsPage() {
 
   // 2. Query events in the tenant (with creator profiles joined)
   const { data: events = [], isLoading } = useQuery<AdminEvent[]>({
-    queryKey: ['admin-events', tenantId],
+    queryKey: ['admin-events', tenantId, userType],
     queryFn: async () => {
-      if (!tenantId) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from('events')
         .select('*, profiles:created_by(full_name, email)')
-        .eq('tenant_id', tenantId)
         .order('start_time', { ascending: true });
       
+      if (userType !== 'superadmin') {
+        if (!tenantId) return [];
+        query = query.eq('tenant_id', tenantId);
+      }
+      
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
     },
-    enabled: !!tenantId && isAdmin,
+    enabled: (!!tenantId || userType === 'superadmin') && isAdmin,
   });
 
   // 3. Status Change Mutations (Approve, Reject, Cancel)
@@ -85,8 +89,8 @@ export function AdminEventsPage() {
     },
     onSuccess: (_, variables) => {
       toast.success(`Event status updated to: ${variables.status}`);
-      queryClient.invalidateQueries({ queryKey: ['admin-events', tenantId] });
-      queryClient.invalidateQueries({ queryKey: ['events', tenantId] }); // Refresh user-facing cache too
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      queryClient.invalidateQueries({ queryKey: ['events'] }); // Refresh user-facing cache too
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to update event status');
@@ -104,8 +108,8 @@ export function AdminEventsPage() {
     },
     onSuccess: () => {
       toast.success('Event deleted successfully.');
-      queryClient.invalidateQueries({ queryKey: ['admin-events', tenantId] });
-      queryClient.invalidateQueries({ queryKey: ['events', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      queryClient.invalidateQueries({ queryKey: ['events'] });
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to delete event');
