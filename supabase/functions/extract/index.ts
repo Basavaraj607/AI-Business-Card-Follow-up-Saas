@@ -20,7 +20,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || ''
     const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
-    const geminiKey = Deno.env.get('GEMINI_API_KEY') || Deno.env.get('VITE_GEMINI_API_KEY') || ''
     const visionKey = Deno.env.get('VISION_API_KEY') || Deno.env.get('GOOGLE_VISION_API_KEY') || ''
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
@@ -49,7 +48,8 @@ serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}))
-    const { storagePath, text: clientOcrText } = body
+    const { storagePath, text: clientOcrText, geminiApiKey } = body
+    const geminiKey = Deno.env.get('GEMINI_API_KEY') || Deno.env.get('VITE_GEMINI_API_KEY') || geminiApiKey || ''
 
     if (!storagePath) {
       return new Response(JSON.stringify({ error: 'Missing storagePath parameter' }), { status: 400, headers: corsHeaders })

@@ -103,10 +103,12 @@ export function UploadPage() {
 
       // 2. Local OCR Scan
       updateStatus('scanning', 45);
-      const { data: { text } } = await Tesseract.recognize(compressedFile, 'eng');
-      
-      if (!text.trim()) {
-        throw new Error('No readable text found on this business card.');
+      let text = '';
+      try {
+        const ocrResult = await Tesseract.recognize(compressedFile, 'eng');
+        text = ocrResult?.data?.text || '';
+      } catch (ocrErr) {
+        console.warn('Local Tesseract OCR failed, proceeding to server-side extraction:', ocrErr);
       }
 
       // 3. AI Field Parsing via Server-Side Edge Function
@@ -115,10 +117,12 @@ export function UploadPage() {
       let dbContactId: string | undefined;
 
       try {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
         const { data: contactRecord, error: extractError } = await supabase.functions.invoke('extract', {
           body: {
             storagePath: path,
-            text: text
+            text: text,
+            geminiApiKey: apiKey
           }
         });
 

@@ -19,21 +19,29 @@ export function CardCamera({ onCapture }: Props) {
       const videoDevices = mediaDevices.filter(({ kind }) => kind === 'videoinput');
       setDevices(videoDevices);
       
-      if (videoDevices.length > 0 && !activeDeviceId) {
-        // Prefer rear camera if available on load
-        const environmentCamera = videoDevices.find(device => 
-          device.label.toLowerCase().includes('back') || 
-          device.label.toLowerCase().includes('rear') ||
-          device.label.toLowerCase().includes('environment')
-        );
-        setActiveDeviceId(environmentCamera ? environmentCamera.deviceId : videoDevices[0].deviceId);
+      if (videoDevices.length > 0) {
+        setActiveDeviceId(current => {
+          // If the currently selected device is still valid, keep it
+          if (current && videoDevices.some(device => device.deviceId === current)) {
+            return current;
+          }
+          // Prefer rear camera if available on load
+          const environmentCamera = videoDevices.find(device => 
+            device.label.toLowerCase().includes('back') || 
+            device.label.toLowerCase().includes('rear') ||
+            device.label.toLowerCase().includes('environment')
+          );
+          return environmentCamera ? environmentCamera.deviceId : videoDevices[0].deviceId;
+        });
       }
     },
-    [activeDeviceId]
+    []
   );
 
   useEffect(() => {
-    navigator.mediaDevices.enumerateDevices().then(handleDevices);
+    navigator.mediaDevices.enumerateDevices()
+      .then(handleDevices)
+      .catch(err => console.error('Error enumerating devices on mount:', err));
   }, [handleDevices]);
 
   const capture = useCallback(() => {
@@ -58,6 +66,10 @@ export function CardCamera({ onCapture }: Props) {
 
   const handleUserMedia = () => {
     setHasPermission(true);
+    // Enumerate devices again now that permission is granted (gets labels and real device IDs)
+    navigator.mediaDevices.enumerateDevices()
+      .then(handleDevices)
+      .catch(err => console.error('Error enumerating devices after permission grant:', err));
   };
 
   const handleUserMediaError = (error: string | DOMException) => {
@@ -79,23 +91,31 @@ export function CardCamera({ onCapture }: Props) {
         </div>
       ) : (
         <div className="relative rounded-xl overflow-hidden bg-black aspect-[4/3] sm:aspect-video shadow-lg group">
-          {activeDeviceId ? (
-            <Webcam
-              audio={false}
-              ref={webcamRef}
-              screenshotFormat="image/jpeg"
-              screenshotQuality={0.95}
-              videoConstraints={{
-                deviceId: activeDeviceId,
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-              }}
-              onUserMedia={handleUserMedia}
-              onUserMediaError={handleUserMediaError}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-400">
+          <Webcam
+            audio={false}
+            ref={webcamRef}
+            screenshotFormat="image/jpeg"
+            screenshotQuality={0.95}
+            videoConstraints={
+              activeDeviceId
+                ? {
+                    deviceId: activeDeviceId,
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                  }
+                : {
+                    facingMode: 'environment',
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                  }
+            }
+            onUserMedia={handleUserMedia}
+            onUserMediaError={handleUserMediaError}
+            className="w-full h-full object-cover"
+          />
+
+          {hasPermission === null && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10 text-gray-400">
               <div className="spinner border-gray-600 border-t-white" />
             </div>
           )}
@@ -117,7 +137,7 @@ export function CardCamera({ onCapture }: Props) {
           {devices.length > 1 && (
             <button
               onClick={switchCamera}
-              className="absolute bottom-4 right-4 p-2.5 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-sm transition-all duration-150 active:scale-95"
+              className="absolute bottom-4 right-4 p-2.5 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-sm transition-all duration-150 active:scale-95 z-20"
               title="Switch Camera"
             >
               <SwitchCamera size={18} />
