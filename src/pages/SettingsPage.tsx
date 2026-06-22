@@ -2,15 +2,18 @@
 import { useState, useEffect } from 'react';
 import { 
   Key, ShieldAlert, Sparkles, CheckCircle2, AlertCircle, 
-  Cpu, Mail, Phone, MessageSquare, Terminal, RefreshCw, Send, CheckCircle
+  Cpu, Mail, Phone, MessageSquare, Terminal, RefreshCw, Send, CheckCircle,
+  UserCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { notifications } from '../services/notifications';
 import { analytics } from '../services/posthog';
 import { inngest } from '../services/inngest';
+import { createClient } from '../lib/supabase/client';
+import { ProfileSettingsPage } from './ProfileSettingsPage';
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'credentials' | 'sandbox'>('credentials');
+  const [activeTab, setActiveTab] = useState<'profile' | 'credentials' | 'sandbox'>('profile');
   
   // Credentials Tab State
   const [apiKey, setApiKey] = useState('');
@@ -52,44 +55,28 @@ export function SettingsPage() {
     setTesting(true);
     setTestResult(null);
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: 'Respond with the word "Success" if you can read this.',
-                  },
-                ],
-              },
-            ],
-          }),
+      const supabase = createClient();
+      const { data, error } = await supabase.functions.invoke('extract', {
+        body: {
+          action: 'test-key',
+          geminiApiKey: apiKey.trim()
         }
-      );
+      });
 
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.toLowerCase().includes('success')) {
-          setTestResult('success');
-          toast.success('API Key is valid!');
-        } else {
-          setTestResult('error');
-          toast.error('API Key returned unexpected response.');
-        }
+      if (error) {
+        throw new Error(error.message || 'Validation failed via Edge Function');
+      }
+
+      if (data && data.success) {
+        setTestResult('success');
+        toast.success('API Key is valid!');
       } else {
         setTestResult('error');
-        toast.error(`Invalid API Key (HTTP ${response.status})`);
+        toast.error(data?.error || 'API Key returned unexpected response.');
       }
-    } catch (err) {
+    } catch (err: any) {
       setTestResult('error');
-      toast.error('API Test failed. Check your internet connection.');
+      toast.error(err.message || 'API Test failed. Edge Function might be offline.');
       console.error(err);
     } finally {
       setTesting(false);
@@ -188,7 +175,18 @@ export function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex border-b border-gray-200 gap-1">
+        <button
+          onClick={() => setActiveTab('profile')}
+          className={`pb-4 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+            activeTab === 'profile' 
+              ? 'border-brand text-brand' 
+              : 'border-transparent text-gray-500 hover:text-gray-900'
+          }`}
+        >
+          <UserCircle size={15} />
+          My Profile
+        </button>
         <button
           onClick={() => setActiveTab('credentials')}
           className={`pb-4 px-4 text-sm font-semibold border-b-2 transition-all cursor-pointer ${
@@ -210,6 +208,11 @@ export function SettingsPage() {
           Developer Sandbox
         </button>
       </div>
+
+      {/* Tab Content 0: My Profile */}
+      {activeTab === 'profile' && (
+        <ProfileSettingsPage />
+      )}
 
       {/* Tab Content 1: Credentials */}
       {activeTab === 'credentials' && (

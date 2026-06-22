@@ -44,38 +44,38 @@ export function EventsPage() {
 
   const supabase = createClient();
 
-  // 1. Fetch Events
+  // 1. Fetch Events — GLOBAL: all approved events regardless of tenant.
+  //    A user's own pending/rejected submissions are also returned by RLS.
   const { data: events = [], isLoading: loadingEvents } = useQuery<Event[]>({
-    queryKey: ['events', tenantId],
+    queryKey: ['events', user?.id],
     queryFn: async () => {
-      if (!tenantId) return [];
+      if (!user?.id) return [];
       const { data, error } = await supabase
         .from('events')
         .select('*')
-        .eq('tenant_id', tenantId)
         .order('start_time', { ascending: true });
       
       if (error) throw error;
       return data || [];
     },
-    enabled: !!tenantId,
+    enabled: !!user?.id,
   });
 
-  // 2. Fetch Current User's Registrations
+  // 2. Fetch Current User's Registrations — cross-tenant: the user may have
+  //    registered for events from any tenant, so filter only by user_id.
   const { data: registrations = [], isLoading: loadingRegs } = useQuery<Registration[]>({
-    queryKey: ['registrations', tenantId, user?.id],
+    queryKey: ['registrations', user?.id],
     queryFn: async () => {
-      if (!tenantId || !user?.id) return [];
+      if (!user?.id) return [];
       const { data, error } = await supabase
         .from('event_registrations')
         .select('*')
-        .eq('tenant_id', tenantId)
         .eq('user_id', user.id);
       
       if (error) throw error;
       return data || [];
     },
-    enabled: !!tenantId && !!user?.id,
+    enabled: !!user?.id,
   });
 
   // 3. Process In-app Toast Notifications for user-submitted events
@@ -107,7 +107,7 @@ export function EventsPage() {
           if (error) console.error('Error marking event notified:', error);
           
           // Instantly refresh query cache locally for notified status
-          queryClient.setQueryData(['events', tenantId], (oldEvents: Event[] | undefined) => {
+          queryClient.setQueryData(['events', user?.id], (oldEvents: Event[] | undefined) => {
             if (!oldEvents) return [];
             return oldEvents.map(old => old.id === event.id ? { ...old, notified: true } : old);
           });
@@ -149,7 +149,7 @@ export function EventsPage() {
     },
     onSuccess: () => {
       toast.success('Successfully registered for event!');
-      queryClient.invalidateQueries({ queryKey: ['registrations', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['registrations', user?.id] });
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to register');
@@ -167,7 +167,7 @@ export function EventsPage() {
     },
     onSuccess: () => {
       toast.success('Registration cancelled successfully.');
-      queryClient.invalidateQueries({ queryKey: ['registrations', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['registrations', user?.id] });
     },
     onError: (err: any) => {
       toast.error(err.message || 'Failed to cancel registration');
@@ -304,7 +304,7 @@ export function EventsPage() {
               <EventCreateEditForm 
                 isUserSubmission={true}
                 onSubmitSuccess={() => {
-                  queryClient.invalidateQueries({ queryKey: ['events', tenantId] });
+                  queryClient.invalidateQueries({ queryKey: ['events', user?.id] });
                   setActiveTab('my-events');
                 }}
                 onCancel={() => {

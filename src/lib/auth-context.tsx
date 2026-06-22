@@ -118,9 +118,10 @@ export function AuthProvider({
     }
   }, [])
 
-  // Fetch the role, user type, and tenant_id for the authenticated user
+  // Fetch the role, user type, and tenant_id for the active user (impersonated or real)
   useEffect(() => {
-    if (!user) {
+    const activeUser = impersonatedUser || user
+    if (!activeUser) {
       setRole(null)
       setUserType(null)
       setTenantId(null)
@@ -132,7 +133,7 @@ export function AuthProvider({
         const { data, error } = await supabase
           .from('profiles')
           .select('role, user_type, tenant_id')
-          .eq('id', user.id)
+          .eq('id', activeUser.id)
           .maybeSingle()
 
         if (data && !error) {
@@ -142,55 +143,67 @@ export function AuthProvider({
         } else {
           setRole('member')
           setUserType('user')
-          setTenantId(user.user_metadata?.tenant_id ?? user.id)
+          setTenantId(activeUser.user_metadata?.tenant_id ?? activeUser.id)
         }
       } catch (err) {
         console.warn('Failed to fetch user role:', err)
         setRole('member')
         setUserType('user')
-        setTenantId(user.user_metadata?.tenant_id ?? user.id)
+        setTenantId(activeUser.user_metadata?.tenant_id ?? activeUser.id)
       }
     }
 
     fetchRole()
-  }, [user])
+  }, [user, impersonatedUser])
 
   useEffect(() => {
     if (!user) return
 
     const ensureRecords = async () => {
       try {
-        const tenantId = user.user_metadata?.tenant_id ?? user.id
+        // Check if profile already exists first
+        const { data: existingProfile, error: checkError } = await supabase
+          .from('profiles')
+          .select('id, tenant_id')
+          .eq('id', user.id)
+          .maybeSingle()
 
-        const emailSlug = (user.email ?? 'workspace').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace'
-
-        // Try upserting tenant (id = tenantId)
-        const { error: tenantError } = await supabase
-          .from('tenants')
-          .upsert({ 
-            id: tenantId, 
-            name: user.user_metadata?.company_name ?? `${user.email ?? 'Workspace'}`, 
-            slug: emailSlug, 
-            owner_id: user.id 
-          }, { onConflict: 'id' })
-
-        if (tenantError) {
-          console.warn('Failed to upsert tenant:', tenantError)
+        if (checkError) {
+          console.warn('Error checking existing profile:', checkError)
         }
 
-        // Upsert profile for the user
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert({ 
-            id: user.id, 
-            tenant_id: tenantId, 
-            full_name: user.user_metadata?.full_name ?? user.email ?? 'User', 
-            email: user.email,
-            sender_phone: user.user_metadata?.phone ?? user.phone ?? null
-          }, { onConflict: 'id' })
+        if (!existingProfile) {
+          const tenantId = user.user_metadata?.tenant_id ?? user.id
+          const emailSlug = (user.email ?? 'workspace').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace'
 
-        if (profileError) {
-          console.warn('Failed to upsert profile:', profileError)
+          // Try upserting tenant (id = tenantId)
+          const { error: tenantError } = await supabase
+            .from('tenants')
+            .upsert({ 
+              id: tenantId, 
+              name: user.user_metadata?.company_name ?? `${user.email ?? 'Workspace'}`, 
+              slug: emailSlug, 
+              owner_id: user.id 
+            }, { onConflict: 'id' })
+
+          if (tenantError) {
+            console.warn('Failed to upsert tenant:', tenantError)
+          }
+
+          // Insert profile for the user
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert({ 
+              id: user.id, 
+              tenant_id: tenantId, 
+              full_name: user.user_metadata?.full_name ?? user.email ?? 'User', 
+              email: user.email,
+              sender_phone: user.user_metadata?.phone ?? user.phone ?? null
+            })
+
+          if (profileError) {
+            console.warn('Failed to insert profile:', profileError)
+          }
         }
       } catch (e) {
         console.warn('Error ensuring tenant/profile records:', e)

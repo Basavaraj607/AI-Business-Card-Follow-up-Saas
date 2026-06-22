@@ -48,8 +48,47 @@ serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}))
-    const { storagePath, text: clientOcrText, geminiApiKey } = body
+    const { storagePath, text: clientOcrText, geminiApiKey, action } = body
     const geminiKey = Deno.env.get('GEMINI_API_KEY') || Deno.env.get('VITE_GEMINI_API_KEY') || geminiApiKey || ''
+
+    if (action === 'test-key') {
+      if (!geminiKey) {
+        return new Response(JSON.stringify({ error: 'Missing Gemini API key' }), { status: 400, headers: corsHeaders })
+      }
+      try {
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`
+        const geminiRes = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: 'Respond with the word "Success" if you can read this.'
+                  }
+                ]
+              }
+            ]
+          })
+        })
+
+        if (geminiRes.ok) {
+          const data = await geminiRes.json()
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+          if (text && text.toLowerCase().includes('success')) {
+            return new Response(JSON.stringify({ success: true }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          } else {
+            return new Response(JSON.stringify({ error: 'Unexpected response from Gemini API' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          }
+        } else {
+          const errText = await geminiRes.text()
+          return new Response(JSON.stringify({ error: `Gemini API returned HTTP ${geminiRes.status}: ${errText}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message || err }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+    }
 
     if (!storagePath) {
       return new Response(JSON.stringify({ error: 'Missing storagePath parameter' }), { status: 400, headers: corsHeaders })

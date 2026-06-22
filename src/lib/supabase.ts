@@ -16,7 +16,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
-    storage: window.sessionStorage,
+    storage: window.localStorage,
     autoRefreshToken: true,
     detectSessionInUrl: true,
   },
@@ -34,7 +34,13 @@ export async function getCurrentUser() {
 export async function getTenantId(): Promise<string> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Not authenticated')
-  // tenant_id = user.id for solo users; org id for teams
-  const tenantId = user.user_metadata?.tenant_id ?? user.id
-  return tenantId
+  // Always read tenant_id live from the profiles table (not stale JWT metadata)
+  const { data } = await supabase
+    .from('profiles')
+    .select('tenant_id')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (data?.tenant_id) return data.tenant_id
+  // Fallback: if profile hasn't been created yet, use user.id
+  return user.id
 }
