@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../lib/auth-context';
 import { Link, useNavigate } from 'react-router-dom';
-import { createClient } from '../lib/supabase/client';
+import { supabase } from '../lib/supabase';
+import type { Database } from '../types/database';
 import {
   Users, Mail, Flame, Plus, CreditCard,
   ChevronRight, Calendar, Loader2, TrendingUp,
@@ -118,7 +119,6 @@ export function DashboardPage() {
   const [activityData,    setActivityData]    = useState<DayActivity[]>([]);
   const [markingDone,     setMarkingDone]     = useState<string | null>(null);
 
-  const supabase = createClient();
   const name = user?.user_metadata?.full_name?.split(' ')[0] ?? 'there';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -207,7 +207,10 @@ export function DashboardPage() {
   const handleMarkDone = async (id: string) => {
     setMarkingDone(id);
     try {
-      await supabase.from('followups').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', id);
+      const { error } = await (supabase.from('followups') as any)
+        .update({ status: 'done', completed_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
       setTodayFollowups(prev => prev.filter(f => f.id !== id));
     } finally { setMarkingDone(null); }
   };

@@ -98,7 +98,7 @@ function EyeToggle({ show, onToggle, labelledBy }: EyeToggleProps) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 export function ProfileSettingsPage() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const supabase = createClient();
 
   // ── Profile section ──────────────────────────────────────────────────────────
@@ -147,6 +147,7 @@ export function ProfileSettingsPage() {
         })
         .eq('id', user!.id);
       if (error) throw error;
+      await refreshProfile();
       toast.success('Profile saved!');
     } catch (err: any) {
       toast.error(err.message || 'Failed to save profile');

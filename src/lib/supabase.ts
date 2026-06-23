@@ -35,11 +35,11 @@ export async function getTenantId(): Promise<string> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Not authenticated')
   // Always read tenant_id live from the profiles table (not stale JWT metadata)
-  const { data } = await supabase
+  const { data } = await (supabase
     .from('profiles')
     .select('tenant_id')
     .eq('id', user.id)
-    .maybeSingle()
+    .maybeSingle() as any)
   if (data?.tenant_id) return data.tenant_id
   // Fallback: if profile hasn't been created yet, use user.id
   return user.id

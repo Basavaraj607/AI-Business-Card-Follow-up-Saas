@@ -27,6 +27,7 @@ interface AuthContextValue {
   signUpWithPassword: (email: string, password: string, first_name: string, last_name: string, phone: string, company: string) => Promise<any>
   signInWithPassword: (email: string, password: string) => Promise<any>
   verifyOtp: (emailOrPhone: string, token: string, type: 'signup' | 'sms') => Promise<any>
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -118,8 +119,7 @@ export function AuthProvider({
     }
   }, [])
 
-  // Fetch the role, user type, and tenant_id for the active user (impersonated or real)
-  useEffect(() => {
+  const refreshProfile = async () => {
     const activeUser = impersonatedUser || user
     if (!activeUser) {
       setRole(null)
@@ -128,33 +128,58 @@ export function AuthProvider({
       return
     }
 
-    const fetchRole = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('role, user_type, tenant_id')
-          .eq('id', activeUser.id)
-          .maybeSingle()
+    try {
+      const { data, error } = await (supabase
+        .from('profiles')
+        .select('role, user_type, tenant_id, full_name')
+        .eq('id', activeUser.id)
+        .maybeSingle() as any)
 
-        if (data && !error) {
-          setRole(data.role)
-          setUserType(data.user_type)
-          setTenantId(data.tenant_id)
-        } else {
-          setRole('member')
-          setUserType('user')
-          setTenantId(activeUser.user_metadata?.tenant_id ?? activeUser.id)
+      if (data && !error) {
+        setRole(data.role)
+        setUserType(data.user_type)
+        setTenantId(data.tenant_id)
+        if (data.full_name) {
+          setUser(prev => {
+            if (!prev) return null
+            return {
+              ...prev,
+              user_metadata: {
+                ...prev.user_metadata,
+                full_name: data.full_name
+              }
+            }
+          })
+          if (impersonatedUser) {
+            setImpersonatedUser(prev => {
+              if (!prev) return null
+              return {
+                ...prev,
+                user_metadata: {
+                  ...prev.user_metadata,
+                  full_name: data.full_name
+                }
+              }
+            })
+          }
         }
-      } catch (err) {
-        console.warn('Failed to fetch user role:', err)
+      } else {
         setRole('member')
         setUserType('user')
         setTenantId(activeUser.user_metadata?.tenant_id ?? activeUser.id)
       }
+    } catch (err) {
+      console.warn('Failed to fetch user role:', err)
+      setRole('member')
+      setUserType('user')
+      setTenantId(activeUser.user_metadata?.tenant_id ?? activeUser.id)
     }
+  }
 
-    fetchRole()
-  }, [user, impersonatedUser])
+  // Fetch the role, user type, and tenant_id for the active user (impersonated or real)
+  useEffect(() => {
+    refreshProfile()
+  }, [user?.id, impersonatedUser?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return
@@ -177,21 +202,21 @@ export function AuthProvider({
           const emailSlug = (user.email ?? 'workspace').split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace'
 
           // Try upserting tenant (id = tenantId)
-          const { error: tenantError } = await supabase
+          const { error: tenantError } = await (supabase
             .from('tenants')
             .upsert({ 
               id: tenantId, 
               name: user.user_metadata?.company_name ?? `${user.email ?? 'Workspace'}`, 
               slug: emailSlug, 
               owner_id: user.id 
-            }, { onConflict: 'id' })
+            } as any, { onConflict: 'id' }) as any)
 
           if (tenantError) {
             console.warn('Failed to upsert tenant:', tenantError)
           }
 
           // Insert profile for the user
-          const { error: profileError } = await supabase
+          const { error: profileError } = await (supabase
             .from('profiles')
             .insert({ 
               id: user.id, 
@@ -199,7 +224,7 @@ export function AuthProvider({
               full_name: user.user_metadata?.full_name ?? user.email ?? 'User', 
               email: user.email,
               sender_phone: user.user_metadata?.phone ?? user.phone ?? null
-            })
+            } as any) as any)
 
           if (profileError) {
             console.warn('Failed to insert profile:', profileError)
@@ -296,22 +321,22 @@ export function AuthProvider({
     // Provision mock workspace & profile in live database to satisfy constraints
     try {
       const emailSlug = mockEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace'
-      await supabase.from('tenants').insert({
+      await (supabase.from('tenants').insert({
         id: mockId,
         name: `${mockEmail.split('@')[0]}'s Workspace`,
         slug: `${emailSlug}-workspace`,
         plan: 'free',
         owner_id: mockId,
         settings: {}
-      });
+      } as any) as any);
       
-      await supabase.from('profiles').insert({
+      await (supabase.from('profiles').insert({
         id: mockId,
         tenant_id: mockId,
         full_name: mockEmail.split('@')[0],
         role: 'owner',
         email: mockEmail
-      });
+      } as any) as any);
       console.log('Mock credentials successfully provisioned in live database.');
     } catch (err) {
       console.warn('Could not provision mock credentials in live database (offline mode):', err);
@@ -406,7 +431,8 @@ export function AuthProvider({
     signInWithMock,
     signUpWithPassword,
     signInWithPassword,
-    verifyOtp
+    verifyOtp,
+    refreshProfile
   }
 
   return (
