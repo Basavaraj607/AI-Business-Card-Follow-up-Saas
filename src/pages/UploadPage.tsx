@@ -8,6 +8,7 @@ import { parseCardText, ParsedContact } from '../utils/ai-parser';
 import { createClient } from '../lib/supabase/client';
 import imageCompression from 'browser-image-compression';
 import Tesseract from 'tesseract.js';
+import { useAuth } from '../lib/auth-context';
 import { 
   Camera, Upload, Sparkles, Loader2, ArrowLeft, 
   CheckCircle, RefreshCw, Key, ShieldAlert, Trash2, ListOrdered, FileImage
@@ -29,17 +30,14 @@ interface QueueItem {
 
 export function UploadPage() {
   const navigate = useNavigate();
+  const { tenantId } = useAuth();
   const [activeTab, setActiveTab] = useState<'camera' | 'upload'>('camera');
-  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   
   // Batch queue state
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const key = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
-    setHasApiKey(!!key.trim());
-  }, []);
+
 
   // Revoke object URLs on unmount to avoid memory leaks
   useEffect(() => {
@@ -89,7 +87,7 @@ export function UploadPage() {
         useWebWorker: true 
       });
 
-      const path = `cards/${crypto.randomUUID()}.jpg`;
+      const path = `cards/${tenantId || 'default'}/${crypto.randomUUID()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from('card-images')
         .upload(path, compressedFile, { cacheControl: '3600', upsert: false });
@@ -117,7 +115,7 @@ export function UploadPage() {
       let dbContactId: string | undefined;
 
       try {
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
+        const apiKey = localStorage.getItem('gemini_api_key') || '';
         const { data: contactRecord, error: extractError } = await supabase.functions.invoke('extract', {
           body: {
             storagePath: path,
@@ -269,27 +267,7 @@ export function UploadPage() {
         </div>
       </div>
 
-      {/* Settings warning / API Banner if missing */}
-      {!hasApiKey && isQueueEmpty && (
-        <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-amber-800">
-          <div className="flex items-start gap-3">
-            <ShieldAlert size={20} className="text-amber-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-semibold text-sm">No Gemini API Key found</p>
-              <p className="text-xs text-amber-700">
-                The scanner will use basic regex heuristics. For smart AI contact extraction, set your Gemini API key in Settings or click below.
-              </p>
-            </div>
-          </div>
-          <button 
-            onClick={() => navigate('/settings')}
-            className="btn-secondary btn-sm bg-white border-amber-200 text-amber-800 hover:bg-amber-100 shrink-0 flex items-center gap-1.5 font-bold"
-          >
-            <Key size={13} />
-            Configure API Key
-          </button>
-        </div>
-      )}
+
 
       {isQueueEmpty ? (
         /* ── Idle Stage: Capture Panel ── */

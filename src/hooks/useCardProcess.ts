@@ -1,6 +1,7 @@
 // hooks/useCardProcess.ts
 import { useState } from 'react';
 import { createClient } from '../lib/supabase/client';
+import { useAuth } from '../lib/auth-context';
 import Tesseract from 'tesseract.js'; // npm i tesseract.js
 import imageCompression from 'browser-image-compression'; // npm i browser-image-compression
 
@@ -22,6 +23,7 @@ type ParsedContact = {
 }
 
 export function useCardProcess() {
+  const { tenantId } = useAuth();
   const [steps, setSteps] = useState<ProcessStep[]>([
     { id: 'upload',  label: 'Upload to storage', sub: 'Supabase Storage bucket', status: 'idle' },
     { id: 'ocr',     label: 'OCR extraction',    sub: 'Tesseract.js',             status: 'idle' },
@@ -39,7 +41,7 @@ export function useCardProcess() {
     // Step 1 — compress + upload
     setStep('upload', 'loading');
     const compressed = await imageCompression(file, { maxSizeMB: 1.5, maxWidthOrHeight: 1800 });
-    const path = `cards/${crypto.randomUUID()}.jpg`;
+    const path = `cards/${tenantId || 'default'}/${crypto.randomUUID()}.jpg`;
     const { error } = await supabase.storage.from('card-images').upload(path, compressed);
     if (error) { setStep('upload', 'error'); return; }
     setStep('upload', 'done');

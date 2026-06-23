@@ -347,16 +347,16 @@ export function ContactsPage() {
     const senderCompany = user?.user_metadata?.company_name || '';
     const sign = `${senderName}${senderCompany ? '\n' + senderCompany : ''}${senderPhone ? '\n' + senderPhone : ''}`;
 
-    const key = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
-    if (key) {
-      try {
-        const systemPrompt = `You are a professional relationship assistant. Write a follow-up email that sounds authentic, not AI-generated. Do not use generic filler phrases like "Hope this email finds you well" or "I am writing to...".`;
-        
-        const toneLabel = getToneLabel(currentTone);
-        const lengthLabel = getLengthLabel(currentLength);
-        const objectiveLabel = getObjectiveLabel(currentObjective);
-        
-        const userPrompt = `Write a follow-up email to my contact with the following specifications:
+    const key = localStorage.getItem('gemini_api_key') || '';
+    const supabase = createClient();
+    try {
+      const systemPrompt = `You are a professional relationship assistant. Write a follow-up email that sounds authentic, not AI-generated. Do not use generic filler phrases like "Hope this email finds you well" or "I am writing to...".`;
+      
+      const toneLabel = getToneLabel(currentTone);
+      const lengthLabel = getLengthLabel(currentLength);
+      const objectiveLabel = getObjectiveLabel(currentObjective);
+      
+      const userPrompt = `Write a follow-up email to my contact with the following specifications:
 - Tone: ${toneLabel}
 - Objective: ${objectiveLabel}
 - Length: ${lengthLabel}
@@ -376,36 +376,26 @@ My Information:
 
 Please include a subject line (starting with "Subject: ...") at the top of the email, followed by the email body. Format with clean spacing.`;
 
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: 'user',
-                  parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
-                }
-              ]
-            })
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          const draftText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (draftText) {
-            setFollowupDraft(draftText.trim());
-            setGeneratingFollowup(false);
-            return;
-          }
+      const { data, error } = await supabase.functions.invoke('extract', {
+        body: {
+          action: 'generate-followup',
+          systemPrompt,
+          userPrompt,
+          geminiApiKey: key
         }
-      } catch (err) {
-        console.warn('Gemini follow-up generation failed, using local template:', err);
+      });
+
+      if (error) {
+        throw error;
       }
+
+      if (data && data.text) {
+        setFollowupDraft(data.text.trim());
+        setGeneratingFollowup(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Gemini follow-up generation failed, using local template:', err);
     }
 
     // Fallback template matching
@@ -967,7 +957,7 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
                       </div>
                     </div>
 
-                    {!(!!(import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key'))) && customContext && (
+                    {!(!!localStorage.getItem('gemini_api_key')) && customContext && (
                       <div className="p-2.5 bg-amber-50 border border-amber-100 rounded-lg flex items-start gap-2 text-[10px] text-amber-800">
                         <AlertCircle size={14} className="shrink-0 mt-0.5" />
                         <span>Using local template fallback because Gemini API Key is missing. Custom context will be merged as a sentence.</span>

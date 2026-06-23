@@ -1,5 +1,5 @@
 // components/CardCapture/ContactReview.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createClient } from '../../lib/supabase/client';
 import { useAuth } from '../../lib/auth-context';

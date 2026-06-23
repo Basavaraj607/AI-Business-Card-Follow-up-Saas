@@ -116,3 +116,35 @@ CREATE POLICY messages_delete ON public.messages
     FOR DELETE
     TO authenticated
     USING (auth.uid() = sent_by);
+
+-- 7. Storage Policies for `card-images` bucket
+-- Allow public read access to card images
+DROP POLICY IF EXISTS "Public Read Access for Card Images" ON storage.objects;
+CREATE POLICY "Public Read Access for Card Images" ON storage.objects
+  FOR SELECT TO public
+  USING (bucket_id = 'card-images');
+
+-- Allow authenticated users to upload card images under cards/{tenant_id} path prefix
+DROP POLICY IF EXISTS "Upload Card Images" ON storage.objects;
+CREATE POLICY "Upload Card Images" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'card-images'
+    AND split_part(name, '/', 1) = 'cards'
+    AND split_part(name, '/', 2) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    AND split_part(name, '/', 2)::uuid = my_tenant_id()
+  );
+
+-- Allow authenticated users to delete card images within their own tenant
+DROP POLICY IF EXISTS "Delete Card Images" ON storage.objects;
+CREATE POLICY "Delete Card Images" ON storage.objects
+  FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'card-images'
+    AND split_part(name, '/', 1) = 'cards'
+    AND split_part(name, '/', 2) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    AND (
+      split_part(name, '/', 2)::uuid = my_tenant_id()
+      OR is_superadmin()
+    )
+  );

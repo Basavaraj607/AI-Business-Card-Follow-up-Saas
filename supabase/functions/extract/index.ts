@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8"
 
+// Gemini model version configuration
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -49,14 +52,17 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}))
     const { storagePath, text: clientOcrText, geminiApiKey, action } = body
-    const geminiKey = Deno.env.get('GEMINI_API_KEY') || Deno.env.get('VITE_GEMINI_API_KEY') || geminiApiKey || ''
+    
+    // Key resolution priority: client-supplied key override, then server-side default secret.
+    // Removed VITE_GEMINI_API_KEY to prevent leakage.
+    const geminiKey = geminiApiKey || Deno.env.get('GEMINI_API_KEY') || '';
 
     if (action === 'test-key') {
       if (!geminiKey) {
         return new Response(JSON.stringify({ error: 'Missing Gemini API key' }), { status: 400, headers: corsHeaders })
       }
       try {
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`
         const geminiRes = await fetch(geminiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -79,13 +85,56 @@ serve(async (req) => {
           if (text && text.toLowerCase().includes('success')) {
             return new Response(JSON.stringify({ success: true }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
           } else {
+            console.error('Gemini key test: Unexpected response payload:', JSON.stringify(data))
             return new Response(JSON.stringify({ error: 'Unexpected response from Gemini API' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
           }
         } else {
           const errText = await geminiRes.text()
+          console.error(`Gemini key test failed. HTTP Status: ${geminiRes.status}. Error body: ${errText}`)
           return new Response(JSON.stringify({ error: `Gemini API returned HTTP ${geminiRes.status}: ${errText}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
       } catch (err: any) {
+        console.error('Gemini key test threw exception:', err)
+        return new Response(JSON.stringify({ error: err.message || err }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+    }
+
+    if (action === 'generate-followup') {
+      const { systemPrompt, userPrompt } = body
+      if (!geminiKey) {
+        return new Response(JSON.stringify({ error: 'Missing Gemini API key' }), { status: 400, headers: corsHeaders })
+      }
+      try {
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`
+        const geminiRes = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
+              }
+            ]
+          })
+        })
+
+        if (geminiRes.ok) {
+          const data = await geminiRes.json()
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+          if (text) {
+            return new Response(JSON.stringify({ text }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          } else {
+            console.error('Gemini follow-up: Unexpected response payload:', JSON.stringify(data))
+            return new Response(JSON.stringify({ error: 'Unexpected response from Gemini API' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          }
+        } else {
+          const errText = await geminiRes.text()
+          console.error(`Gemini follow-up failed. HTTP Status: ${geminiRes.status}. Error body: ${errText}`)
+          return new Response(JSON.stringify({ error: `Gemini API returned HTTP ${geminiRes.status}: ${errText}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+      } catch (err: any) {
+        console.error('Gemini follow-up threw exception:', err)
         return new Response(JSON.stringify({ error: err.message || err }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
     }
@@ -127,7 +176,7 @@ serve(async (req) => {
     if (geminiKey) {
       try {
         const hasOcr = ocrText && ocrText.trim().length > 0
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`
         
         let contents = []
         if (hasOcr) {
@@ -194,10 +243,15 @@ serve(async (req) => {
           const textResult = geminiData.candidates?.[0]?.content?.parts?.[0]?.text
           if (textResult) {
             extracted = JSON.parse(textResult)
+          } else {
+            console.error('Gemini extraction succeeded but text is empty. Response:', JSON.stringify(geminiData))
           }
+        } else {
+          const errText = await geminiRes.text()
+          console.error(`Gemini extraction API failed. HTTP Status: ${geminiRes.status}. Error body: ${errText}`)
         }
       } catch (err) {
-        console.warn('Gemini parser failed:', err)
+        console.error('Gemini extraction parsing failed with exception:', err)
       }
     }
 

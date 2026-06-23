@@ -279,7 +279,7 @@ export function SettingsPage() {
             {testResult === 'success' && (
               <div className="p-3 bg-green-50 border border-green-100 rounded-xl flex items-center gap-2 text-sm text-green-800">
                 <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-                <span>Connection active. Card parsing will use Gemini 1.5 Flash.</span>
+                <span>Connection active. Card parsing will use Gemini 2.5 Flash override.</span>
               </div>
             )}
 
@@ -291,9 +291,9 @@ export function SettingsPage() {
             )}
 
             {!apiKey.trim() && (
-              <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-2 text-sm text-amber-800">
-                <ShieldAlert size={16} className="text-amber-600 shrink-0" />
-                <span>No API key set. The app will use local regex-based contact extraction as a fallback. Set a key for intelligent AI extraction.</span>
+              <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-2 text-sm text-blue-800">
+                <CheckCircle2 size={16} className="text-blue-600 shrink-0" />
+                <span>Using system default Gemini API Key. (You can provide your own key here to override default quota limits.)</span>
               </div>
             )}
           </div>
