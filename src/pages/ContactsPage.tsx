@@ -9,6 +9,7 @@ import {
   Loader2, MessageSquare
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { MessageSendPreviewModal } from '../components/MessageSendPreviewModal';
 import { notifications } from '../services/notifications';
 import { analytics } from '../services/posthog';
 import { inngest } from '../services/inngest';
@@ -171,6 +172,14 @@ export function ContactsPage() {
   const [followupLength, setFollowupLength] = useState<number>(2); // 1-3 (Short, Medium, Long)
   const [customContext, setCustomContext] = useState<string>('');
   const [editorMode, setEditorMode] = useState<'preview' | 'edit'>('preview');
+  const [selectedChannel, setSelectedChannel] = useState<'whatsapp' | 'email' | 'linkedin'>('whatsapp');
+  const [sendMode, setSendMode] = useState<'now' | 'later'>('now');
+  const [scheduleDate, setScheduleDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [scheduleTime, setScheduleTime] = useState('09:00');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewInitialText, setPreviewInitialText] = useState('');
+  const [previewSubject, setPreviewSubject] = useState('');
 
   const getToneLabel = (val: number) => {
     switch (val) {
@@ -303,6 +312,28 @@ export function ContactsPage() {
     fetchContacts();
   }, [user]);
 
+  useEffect(() => {
+    if (followupDraft) {
+      const lines = followupDraft.split('\n');
+      const subjectLine = lines.find(l => l.toLowerCase().startsWith('subject:'));
+      if (subjectLine) {
+        setEmailSubject(subjectLine.replace(/^subject:\s*/i, '').trim());
+      } else if (!emailSubject && selectedChannel === 'email' && selectedContact) {
+        const firstName = selectedContact.full_name?.split(' ')[0] || 'there';
+        const company = selectedContact.ai_structured?.company || '';
+        setEmailSubject(company ? `Following up - ${company}` : `Great connecting, ${firstName}!`);
+      }
+    } else {
+      if (selectedChannel === 'email' && selectedContact && !emailSubject) {
+        const firstName = selectedContact.full_name?.split(' ')[0] || 'there';
+        const company = selectedContact.ai_structured?.company || '';
+        setEmailSubject(company ? `Following up - ${company}` : `Great connecting, ${firstName}!`);
+      } else if (selectedChannel !== 'email') {
+        setEmailSubject('');
+      }
+    }
+  }, [followupDraft, selectedChannel, selectedContact]);
+
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm('Are you sure you want to delete this contact?')) return;
@@ -325,6 +356,214 @@ export function ContactsPage() {
       console.error('Supabase delete failed:', err);
       toast.error(`Database Error: ${err?.message || err || 'Failed to delete contact'}`);
     }
+  };
+
+  const handleOpenSendPreview = () => {
+    console.log('handleOpenSendPreview triggered. selectedContact:', selectedContact, 'selectedChannel:', selectedChannel);
+    if (!selectedContact) return;
+
+    // Helper to clean "Subject: ..." prefix line from message body
+    const cleanMessageBody = (text: string) => {
+      return text.replace(/^subject:\s*.*\n+/i, '').trim();
+    };
+
+    const body = cleanMessageBody(followupDraft || '');
+    const subject = emailSubject || 'Follow-up';
+
+    setPreviewInitialText(body);
+    setPreviewSubject(subject);
+    setIsPreviewOpen(true);
+  };
+
+  const handleConfirmSendNow = async (editedText: string, editedSubject?: string) => {
+    console.log('handleConfirmSendNow triggered. selectedContact:', selectedContact, 'channel:', selectedChannel, 'body:', editedText);
+    if (!selectedContact) return;
+
+    const body = editedText;
+    const subject = editedSubject || emailSubject || 'Follow-up';
+
+    if (selectedChannel === 'whatsapp') {
+      if (!selectedContact.phone) {
+        toast.error('Contact has no phone number');
+        return;
+      }
+      const cleanPhone = selectedContact.phone.replace(/\D/g, '');
+      if (!cleanPhone) {
+        toast.error('Invalid phone number format');
+        return;
+      }
+
+      // Open WhatsApp click-to-chat
+      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(body)}`;
+      const newWindow = window.open(waUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      // Increment count
+      try {
+        const count = selectedContact.whatsapp_count || 0;
+        const supabase = createClient();
+        await supabase
+          .from('contacts')
+          .update({ whatsapp_count: count + 1 })
+          .eq('id', selectedContact.id);
+        
+        setSelectedContact(prev => prev ? { ...prev, whatsapp_count: count + 1 } : null);
+        setContacts(prev => prev.map(c => c.id === selectedContact.id ? { ...c, whatsapp_count: count + 1 } : c));
+      } catch (e) {
+        console.warn('Failed to increment WhatsApp count:', e);
+      }
+
+      // Log message
+      try {
+        const supabase = createClient();
+        await supabase.from('messages').insert({
+          tenant_id: user?.user_metadata?.tenant_id || user?.id,
+          contact_id: selectedContact.id,
+          sent_by: user?.id,
+          channel: 'whatsapp',
+          status: 'sent',
+          body,
+          ai_generated: true,
+          metadata: { sent_via: 'ai_composer_now' }
+        });
+        toast.success('WhatsApp opened and logged!');
+      } catch (e) {
+        console.warn('Failed to log WhatsApp message:', e);
+      }
+      
+    } else if (selectedChannel === 'email') {
+      if (!selectedContact.email) {
+        toast.error('Contact has no email address');
+        return;
+      }
+
+      const supabase = createClient();
+      const { error } = await supabase.functions.invoke('send-communication', {
+        body: {
+          channel: 'email',
+          to: selectedContact.email,
+          subject,
+          body
+        }
+      });
+
+      if (error) {
+        toast.error(error.message || 'Failed to send email');
+        throw error;
+      }
+
+      // Increment count
+      try {
+        const count = selectedContact.email_count || 0;
+        await supabase
+          .from('contacts')
+          .update({ email_count: count + 1 })
+          .eq('id', selectedContact.id);
+
+        setSelectedContact(prev => prev ? { ...prev, email_count: count + 1 } : null);
+        setContacts(prev => prev.map(c => c.id === selectedContact.id ? { ...c, email_count: count + 1 } : c));
+      } catch (e) {
+        console.warn('Failed to increment email count:', e);
+      }
+
+      // Log message
+      try {
+        await supabase.from('messages').insert({
+          tenant_id: user?.user_metadata?.tenant_id || user?.id,
+          contact_id: selectedContact.id,
+          sent_by: user?.id,
+          channel: 'email',
+          status: 'sent',
+          subject,
+          body,
+          ai_generated: true,
+          metadata: { sent_via: 'ai_composer_now' }
+        });
+        toast.success('Email sent successfully!');
+      } catch (e) {
+        console.warn('Failed to log email message:', e);
+      }
+
+    } else if (selectedChannel === 'linkedin') {
+      const linkedin = selectedContact.linkedin_url || selectedContact.ai_structured?.linkedin;
+      if (!linkedin) {
+        toast.error('Contact has no LinkedIn URL');
+        return;
+      }
+
+      const formattedUrl = linkedin.startsWith('http') ? linkedin : `https://${linkedin}`;
+      const newWindow = window.open(formattedUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      // Log message
+      try {
+        const supabase = createClient();
+        await supabase.from('messages').insert({
+          tenant_id: user?.user_metadata?.tenant_id || user?.id,
+          contact_id: selectedContact.id,
+          sent_by: user?.id,
+          channel: 'linkedin',
+          status: 'sent',
+          body: 'LinkedIn profile opened for manual messaging',
+          ai_generated: false,
+          metadata: { sent_via: 'ai_composer_now' }
+        });
+        toast.success('LinkedIn profile opened and logged!');
+      } catch (e) {
+        console.warn('Failed to log LinkedIn message:', e);
+      }
+    }
+  };
+
+  const handleScheduleLater = async () => {
+    if (!selectedContact) return;
+    if (!scheduleDate) {
+      toast.error('Please select a date for scheduling');
+      return;
+    }
+
+    const dueAt = new Date(`${scheduleDate}T${scheduleTime || '09:00'}:00`).toISOString();
+    
+    // Helper to clean "Subject: ..." prefix line from message body
+    const cleanMessageBody = (text: string) => {
+      return text.replace(/^subject:\s*.*\n+/i, '').trim();
+    };
+
+    const body = cleanMessageBody(followupDraft);
+    const subject = emailSubject || 'Follow-up';
+
+    const supabase = createClient();
+    toast.promise(
+      (async () => {
+        const { data, error } = await supabase
+          .from('followups')
+          .insert({
+            tenant_id: user?.user_metadata?.tenant_id || user?.id,
+            contact_id: selectedContact.id,
+            assigned_to: user?.id,
+            status: 'pending',
+            channel: selectedChannel,
+            due_at: dueAt,
+            message_draft: body,
+            subject_draft: selectedChannel === 'email' ? subject : null,
+            step_number: 1
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        return 'Follow-up scheduled successfully!';
+      })(),
+      {
+        loading: 'Scheduling follow-up...',
+        success: (msg) => msg,
+        error: 'Failed to schedule follow-up.'
+      }
+    );
   };
 
   // Followup generator utilizing Gemini LLM or local template fallbacks with registered user's custom details
@@ -554,7 +793,7 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
             return (
               <div 
                 key={contact.id} 
-                onClick={() => navigate(`/contacts/${contact.id}`)}
+                onClick={() => handleSelectContact(contact)}
                 className="card p-5 cursor-pointer card-hover border-gray-100 flex flex-col justify-between min-h-[190px] relative overflow-hidden group"
               >
                 {/* Status Indicator Stripe */}
@@ -964,8 +1203,27 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
                       </div>
                     )}
 
-                    {followupDraft ? (
-                      <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => generateFollowupDraft(selectedContact)}
+                      disabled={generatingFollowup}
+                      className="w-full btn bg-brand hover:bg-brand-600 text-white py-3 flex items-center justify-center gap-2 cursor-pointer shadow-md hover:shadow-lg font-bold rounded-xl"
+                    >
+                      {generatingFollowup ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin text-brand-100" />
+                          Generating follow-up draft...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} className="text-brand-100" />
+                          {followupDraft ? 'Regenerate Draft' : 'Generate Follow-up Draft'}
+                        </>
+                      )}
+                    </button>
+
+                    {followupDraft && (
+                      <div className="space-y-3 mt-4">
                         <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                           {/* Tab Headers */}
                           <div className="flex border-b border-gray-100 bg-gray-50 px-2 justify-between items-center">
@@ -1050,142 +1308,113 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
                           </div>
                         )}
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <a 
-                            href={`mailto:${selectedContact.email || ''}?subject=${encodeURIComponent(followupDraft.split('\n')[0].replace('Subject: ', ''))}&body=${encodeURIComponent(followupDraft.split('\n').slice(2).join('\n'))}`}
-                            className="btn-primary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center font-semibold cursor-pointer"
-                          >
-                            <Mail size={12} />
-                            Email
-                          </a>
-                          
-                          <a 
-                            href={`https://wa.me/${selectedContact.phone ? selectedContact.phone.replace(/[^0-9+]/g, '') : ''}?text=${encodeURIComponent(followupDraft)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn-secondary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center bg-green-50 text-green-700 border-green-200 hover:bg-green-100 font-semibold cursor-pointer"
-                          >
-                            <MessageSquare size={12} />
-                            WhatsApp
-                          </a>
-
-                          <a 
-                            href={`sms:${selectedContact.phone ? selectedContact.phone.replace(/[^0-9+]/g, '') : ''}?body=${encodeURIComponent(followupDraft)}`}
-                            className="btn-secondary btn-sm flex items-center justify-center gap-1.5 shadow-sm hover:shadow text-center bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-semibold cursor-pointer"
-                          >
-                            <Send size={12} />
-                            SMS
-                          </a>
+                        {/* Channel selector */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-gray-500">Select Channel</label>
+                          <div className="grid grid-cols-3 gap-2 bg-gray-100 p-1 rounded-xl">
+                            {(['whatsapp', 'email', 'linkedin'] as const).map(ch => (
+                              <button
+                                key={ch}
+                                type="button"
+                                onClick={() => setSelectedChannel(ch)}
+                                className={`py-1.5 text-xs font-semibold rounded-lg capitalize transition-all cursor-pointer ${
+                                  selectedChannel === ch
+                                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200/50'
+                                    : 'text-gray-500 hover:text-gray-800'
+                                }`}
+                              >
+                                {ch}
+                              </button>
+                            ))}
+                          </div>
                         </div>
 
-                        <div className="flex gap-2">
-                          <button
-                            onClick={async () => {
-                              try {
-                                const hasEmail = !!selectedContact.email;
-                                const channel = hasEmail ? 'email' : 'sms';
-                                const recipient = hasEmail ? selectedContact.email : (selectedContact.phone || '');
-                                
-                                if (!recipient) {
-                                  toast.error('No email or phone number to send to.');
-                                  return;
-                                }
-
-                                toast.promise(
-                                  notifications.send({
-                                    channel,
-                                    to: recipient,
-                                    subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
-                                    body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
-                                    contactId: selectedContact.id
-                                  }).then(async (res) => {
-                                    // Track in analytics and Inngest workflow scheduler
-                                    await analytics.track({
-                                      name: 'followup_sent',
-                                      distinctId: user?.id || 'anonymous',
-                                      properties: { channel, contactId: selectedContact.id }
-                                    });
-
-                                    await inngest.sendEvent({
-                                      name: 'cardfollowup/sequence.start',
-                                      data: {
-                                        channel,
-                                        to: recipient,
-                                        body: followupDraft,
-                                        contactId: selectedContact.id
-                                      }
-                                    });
-
-                                    // Create message log in Supabase
-                                    const { error: msgErr } = await createClient()
-                                      .from('messages')
-                                      .insert({
-                                        tenant_id: user?.user_metadata?.tenant_id || user?.id,
-                                        contact_id: selectedContact.id,
-                                        sent_by: user?.id,
-                                        channel,
-                                        status: 'sent',
-                                        subject: followupDraft.split('\n')[0].replace('Subject: ', ''),
-                                        body: followupDraft.split('\n').slice(2).join('\n') || followupDraft,
-                                        ai_generated: true,
-                                        metadata: { sent_via: 'direct_dashboard' }
-                                      });
-                                    if (msgErr) console.warn('Database message logging failed:', msgErr);
-
-                                    if (res.simulated) {
-                                      return 'Follow-up simulated successfully!';
-                                    }
-                                    return 'Follow-up sent successfully!';
-                                  }),
-                                  {
-                                    loading: 'Sending follow-up via pipeline...',
-                                    success: (msg) => msg,
-                                    error: 'Failed to send follow-up.'
-                                  }
-                                );
-                              } catch (err) {
-                                console.error(err);
-                              }
-                            }}
-                            className="flex-1 btn bg-brand hover:bg-brand-600 text-white rounded-xl py-2.5 font-bold shadow-md hover:shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
-                          >
-                            <Sparkles size={14} className="text-brand-100" />
-                            Send via Server Pipeline
-                          </button>
-                          
-                          <button
-                            onClick={() => generateFollowupDraft(selectedContact)}
-                            disabled={generatingFollowup}
-                            className="btn-secondary py-2.5 px-3.5 flex items-center justify-center gap-1.5 hover:bg-gray-50 cursor-pointer"
-                            title="Regenerate draft"
-                          >
-                            {generatingFollowup ? (
-                              <Loader2 size={14} className="animate-spin text-brand-500" />
-                            ) : (
-                              <Sparkles size={14} className="text-brand-500" />
-                            )}
-                            Regenerate
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => generateFollowupDraft(selectedContact)}
-                        disabled={generatingFollowup}
-                        className="w-full btn bg-brand hover:bg-brand-600 text-white py-3 flex items-center justify-center gap-2 cursor-pointer shadow-md hover:shadow-lg font-bold rounded-xl"
-                      >
-                        {generatingFollowup ? (
-                          <>
-                            <Loader2 size={14} className="animate-spin text-brand-100" />
-                            Generating sequence...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={14} className="text-brand-100" />
-                            Generate instant follow-up
-                          </>
+                        {/* Email Subject input */}
+                        {selectedChannel === 'email' && (
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-gray-500">Email Subject</label>
+                            <input
+                              type="text"
+                              value={emailSubject}
+                              onChange={e => setEmailSubject(e.target.value)}
+                              placeholder="Enter email subject..."
+                              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-brand-400 font-medium"
+                            />
+                          </div>
                         )}
-                      </button>
+
+                        {/* Send mode selection */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-gray-500">When to send</label>
+                          <div className="flex bg-gray-100 p-1 rounded-xl">
+                            <button
+                              type="button"
+                              onClick={() => setSendMode('now')}
+                              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                sendMode === 'now'
+                                  ? 'bg-white text-gray-900 shadow-sm border border-gray-200/50'
+                                  : 'text-gray-500 hover:text-gray-800'
+                              }`}
+                            >
+                              Send Now
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSendMode('later')}
+                              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                                sendMode === 'later'
+                                  ? 'bg-white text-gray-900 shadow-sm border border-gray-200/50'
+                                  : 'text-gray-500 hover:text-gray-800'
+                              }`}
+                            >
+                              Schedule for Later
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Date/Time pickers */}
+                        {sendMode === 'later' && (
+                          <div className="grid grid-cols-2 gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Date</label>
+                              <input
+                                type="date"
+                                value={scheduleDate}
+                                min={new Date().toISOString().split('T')[0]}
+                                onChange={e => setScheduleDate(e.target.value)}
+                                className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-brand-400"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Time</label>
+                              <input
+                                type="time"
+                                value={scheduleTime}
+                                onChange={e => setScheduleTime(e.target.value)}
+                                className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-brand-400"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={sendMode === 'now' ? handleOpenSendPreview : handleScheduleLater}
+                          className="w-full btn bg-brand hover:bg-brand-600 text-white rounded-xl py-2.5 font-bold shadow-md hover:shadow-lg flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                        >
+                          {sendMode === 'now' ? (
+                            <>
+                              <Send size={14} />
+                              Send Now
+                            </>
+                          ) : (
+                            <>
+                              <CalendarClock size={14} />
+                              Schedule Follow-up
+                            </>
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -1202,6 +1431,16 @@ Please include a subject line (starting with "Subject: ...") at the top of the e
                       </details>
                     </div>
                   )}
+
+                  <MessageSendPreviewModal
+                    isOpen={isPreviewOpen}
+                    onClose={() => setIsPreviewOpen(false)}
+                    onConfirm={handleConfirmSendNow}
+                    channel={selectedChannel}
+                    contactName={selectedContact.full_name}
+                    initialMessageText={previewInitialText}
+                    initialEmailSubject={previewSubject}
+                  />
                 </>
               )}
 

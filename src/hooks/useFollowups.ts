@@ -14,6 +14,9 @@ export interface FollowupWithContact extends Followup {
     phone: string | null;
     company: string | null;
     lead_status: string;
+    email_count?: number;
+    whatsapp_count?: number;
+    linkedin_url?: string | null;
   } | null;
 }
 
@@ -76,7 +79,7 @@ export function useFollowups() {
         .from('followups')
         .select(`
           *,
-          contact:contacts(id, full_name, email, phone, ai_structured, lead_status)
+          contact:contacts(id, full_name, email, phone, ai_structured, lead_status, email_count, whatsapp_count, linkedin_url)
         `)
         .order('due_at', { ascending: true });
 
@@ -187,7 +190,7 @@ export function useFollowups() {
     try {
       const { data } = await supabase
         .from('contacts')
-        .select('id, full_name, email, phone, ai_structured, lead_status')
+        .select('id, full_name, email, phone, ai_structured, lead_status, email_count, whatsapp_count, linkedin_url')
         .eq('created_by', user.id)
         .eq('is_archived', false)
         .order('full_name', { ascending: true })

@@ -184,7 +184,21 @@ serve(async (req) => {
             {
               parts: [
                 {
-                  text: `Extract contact details from the following raw OCR text of a business card. Look for full name, email address, phone number, company name, job title, website url, and LinkedIn profile URL. If a field cannot be found, set it to an empty string. Recommend a lead status of 'hot', 'warm', or 'cold' based on the card notes. Format the output as JSON according to the schema.\n\nOCR Text:\n${ocrText}`
+                  text: `Extract contact details from the following raw OCR text of a business card. The OCR text might be messy, garbled, or contain stray punctuation/prefixes (e.g. noise like "or " before a name, or weird brackets like "[<.]" near a phone number). Please clean up and normalize these fields.
+Look for:
+- name: Full name of the contact. Clean up any weird prefixes like "or " or brackets.
+- email: Email address.
+- phone: Phone number. Clean up spaces, brackets, or weird symbols.
+- company: Company name.
+- title: Job title.
+- website: Company website URL.
+- linkedin: LinkedIn profile URL.
+- lead_status: Recommended lead status of 'hot', 'warm', or 'cold' based on the card notes.
+
+If a field cannot be found, set it to an empty string. If the name is missing, try to deduce it from the email prefix or use 'Scanned Contact'. Format the output as JSON according to the schema.
+
+OCR Text:
+${ocrText}`
                 }
               ]
             }
@@ -243,6 +257,19 @@ serve(async (req) => {
           const textResult = geminiData.candidates?.[0]?.content?.parts?.[0]?.text
           if (textResult) {
             extracted = JSON.parse(textResult)
+            
+            // Check if extracted has any useful information.
+            // If it is empty or only has default/fallback values, we'll run fallback regex parser.
+            const hasName = extracted.name && extracted.name.trim().length > 0 && extracted.name !== 'Scanned Contact';
+            const hasInfo = (extracted.email && extracted.email.trim().length > 0) ||
+                            (extracted.phone && extracted.phone.trim().length > 0) ||
+                            (extracted.company && extracted.company.trim().length > 0) ||
+                            (extracted.title && extracted.title.trim().length > 0);
+            
+            if (!hasName && !hasInfo) {
+              console.warn("Gemini returned empty or default data. Treating as extraction failure.");
+              extracted = null;
+            }
           } else {
             console.error('Gemini extraction succeeded but text is empty. Response:', JSON.stringify(geminiData))
           }
@@ -257,8 +284,14 @@ serve(async (req) => {
 
     // Client/regex fallback if Gemini was unavailable or errored out
     if (!extracted) {
-      extracted = {
-        name: 'Scanned Contact',
+      console.warn("Gemini extraction was unavailable or failed. Using server-side regex parser fallback.")
+      const lines = (ocrText || "")
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+      const parsed: any = {
+        name: '',
         email: '',
         phone: '',
         company: '',
@@ -266,7 +299,96 @@ serve(async (req) => {
         website: '',
         linkedin: '',
         lead_status: 'warm'
+      };
+
+      // 1. Extract Email
+      const emailRegex = /[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/i;
+      for (const line of lines) {
+        const match = line.match(emailRegex);
+        if (match) {
+          parsed.email = match[0];
+          break;
+        }
       }
+
+      // 2. Extract Phone
+      const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
+      for (const line of lines) {
+        const match = line.match(phoneRegex);
+        if (match) {
+          parsed.phone = match[0];
+          break;
+        }
+      }
+
+      // 3. Extract Website
+      const webRegex = /(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,6})(?:\/[^\s]*)?/i;
+      for (const line of lines) {
+        if (line.includes('@')) continue;
+        const match = line.match(webRegex);
+        if (match) {
+          parsed.website = match[0];
+          break;
+        }
+      }
+
+      // 4. Extract LinkedIn
+      const liRegex = /(?:linkedin\.com\/in\/|linkedin\.com\/pub\/)?([a-zA-Z0-9-]{3,100})/i;
+      for (const line of lines) {
+        if (line.toLowerCase().includes('linkedin')) {
+          const match = line.match(liRegex);
+          if (match) {
+            parsed.linkedin = line.startsWith('http') ? line : `https://linkedin.com/in/${match[1]}`;
+            break;
+          }
+        }
+      }
+
+      // 5. Deduce Name and Title
+      const nameExclusionRegex = /[0-9]|@|\.com|\.org|\.net|\.co|www\.|http|address|street|rd\.|st\.|blvd|suite|floor/i;
+      const potentialLines = lines.filter(line => !nameExclusionRegex.test(line));
+
+      if (potentialLines.length > 0) {
+        parsed.name = potentialLines[0];
+      }
+
+      // Job title keywords
+      const titleKeywords = [
+        'manager', 'director', 'engineer', 'founder', 'ceo', 'cto', 'cfo', 'vp',
+        'vice president', 'president', 'consultant', 'specialist', 'developer',
+        'architect', 'designer', 'lead', 'head'
+      ];
+      for (const line of lines) {
+        const lowerLine = line.toLowerCase();
+        if (titleKeywords.some(keyword => lowerLine.includes(keyword))) {
+          parsed.title = line;
+          break;
+        }
+      }
+
+      if (!parsed.title && potentialLines.length > 1) {
+        parsed.title = potentialLines[1];
+      }
+
+      // Company name from email
+      if (parsed.email) {
+        const domain = parsed.email.split('@')[1];
+        const companyPart = domain.split('.')[0];
+        const commonProviders = ['gmail', 'yahoo', 'outlook', 'hotmail', 'aol', 'icloud', 'protonmail', 'zoho'];
+        if (!commonProviders.includes(companyPart.toLowerCase())) {
+          parsed.company = companyPart.charAt(0).toUpperCase() + companyPart.slice(1);
+        }
+      }
+
+      if (!parsed.company && potentialLines.length > 2) {
+        parsed.company = potentialLines[2];
+      }
+
+      if (!parsed.name) {
+        parsed.name = parsed.email ? parsed.email.split('@')[0] : 'Scanned Contact';
+      }
+
+      extracted = parsed;
     }
 
     // 5. Upsert company if present
@@ -301,6 +423,7 @@ serve(async (req) => {
         email: extracted.email || null,
         phone: extracted.phone || null,
         role: extracted.title || null,
+        linkedin_url: extracted.linkedin || null,
         raw_ocr_text: ocrText || 'Direct Multimodal Parse',
         ai_structured: extracted,
         lead_status: extracted.lead_status || 'warm',

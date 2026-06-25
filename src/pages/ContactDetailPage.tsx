@@ -12,6 +12,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '../lib/auth-context';
 import { createClient } from '../lib/supabase/client';
+import { MessageSendPreviewModal } from '../components/MessageSendPreviewModal';
 
 // ─── LinkedIn SVG (not in this lucide version) ────────────────────────────────
 const LinkedInIcon = (props: any) => (
@@ -47,6 +48,7 @@ interface ContactDetail {
   email_count: number;
   whatsapp_count: number;
   sms_count: number;
+  linkedin_url: string | null;
   next_followup_at: string | null;
   created_at: string;
   updated_at: string;
@@ -147,6 +149,11 @@ export function ContactDetailPage() {
   const [contact,   setContact]   = useState<ContactDetail | null>(null);
   const [messages,  setMessages]  = useState<Message[]>([]);
   const [followups, setFollowups] = useState<FollowupItem[]>([]);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewFollowup, setPreviewFollowup] = useState<FollowupItem | null>(null);
+  const [previewInitialText, setPreviewInitialText] = useState('');
+  const [previewSubject, setPreviewSubject] = useState('');
+  const [previewChannel, setPreviewChannel] = useState<'whatsapp' | 'email' | 'linkedin'>('whatsapp');
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
   const [showOcr,   setShowOcr]   = useState(false);
@@ -279,6 +286,297 @@ export function ContactDetailPage() {
     toast.success('Marked as done!');
   };
 
+  // ── Execute follow-up (Send email, open whatsapp/linkedin) ───────────────
+  const handleExecuteFollowup = (fup: FollowupItem) => {
+    console.log('handleExecuteFollowup triggered. fup:', fup, 'contact:', contact);
+    if (!contact) return;
+
+    setPreviewFollowup(fup);
+    setPreviewInitialText(fup.message_draft || '');
+    setPreviewSubject(fup.subject_draft || 'Follow-up');
+    setPreviewChannel(fup.channel as 'whatsapp' | 'email' | 'linkedin');
+    setIsPreviewOpen(true);
+  };
+
+  const handleConfirmExecuteFollowup = async (editedText: string, editedSubject?: string) => {
+    console.log('handleConfirmExecuteFollowup triggered. previewFollowup:', previewFollowup, 'contact:', contact);
+    if (!previewFollowup || !contact) return;
+
+    const fup = previewFollowup;
+    const body = editedText;
+    const subject = editedSubject || fup.subject_draft || 'Follow-up';
+
+    if (fup.channel === 'whatsapp') {
+      if (!contact.phone) {
+        toast.error('Contact has no phone number');
+        return;
+      }
+      const cleanPhone = contact.phone.replace(/\D/g, '');
+      if (!cleanPhone) {
+        toast.error('Invalid phone number format');
+        return;
+      }
+
+      // Open WhatsApp click-to-chat
+      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(body)}`;
+      const newWindow = window.open(waUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      // Increment count
+      try {
+        const count = contact.whatsapp_count || 0;
+        await supabase
+          .from('contacts')
+          .update({ whatsapp_count: count + 1 })
+          .eq('id', contact.id);
+        setContact(prev => prev ? { ...prev, whatsapp_count: count + 1 } : null);
+      } catch (e) {
+        console.warn('Failed to increment WhatsApp count:', e);
+      }
+
+      // Log message
+      try {
+        await supabase.from('messages').insert({
+          tenant_id: contact.tenant_id || user?.user_metadata?.tenant_id || user?.id,
+          contact_id: contact.id,
+          sent_by: user?.id,
+          channel: 'whatsapp',
+          status: 'sent',
+          body,
+          ai_generated: true,
+          metadata: { sent_via: 'detail_page_execute' }
+        });
+        
+        // Refresh message list
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('id, channel, status, subject, body, ai_generated, sent_at, opened_at, replied_at, created_at')
+          .eq('contact_id', contact.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        setMessages(msgs ?? []);
+      } catch (e) {
+        console.warn('Failed to log WhatsApp message:', e);
+      }
+
+      await handleFollowupDone(fup.id);
+
+    } else if (fup.channel === 'email') {
+      if (!contact.email) {
+        toast.error('Contact has no email address');
+        return;
+      }
+
+      const { error: invokeError } = await supabase.functions.invoke('send-communication', {
+        body: {
+          channel: 'email',
+          to: contact.email,
+          subject,
+          body
+        }
+      });
+
+      if (invokeError) {
+        toast.error(invokeError.message || 'Failed to send email');
+        throw new Error(invokeError.message || 'Failed to send email');
+      }
+
+      // Increment count
+      try {
+        const count = contact.email_count || 0;
+        await supabase
+          .from('contacts')
+          .update({ email_count: count + 1 })
+          .eq('id', contact.id);
+        setContact(prev => prev ? { ...prev, email_count: count + 1 } : null);
+      } catch (e) {
+        console.warn('Failed to increment email count:', e);
+      }
+
+      // Log message
+      try {
+        await supabase.from('messages').insert({
+          tenant_id: contact.tenant_id || user?.user_metadata?.tenant_id || user?.id,
+          contact_id: contact.id,
+          sent_by: user?.id,
+          channel: 'email',
+          status: 'sent',
+          subject,
+          body,
+          ai_generated: true,
+          metadata: { sent_via: 'detail_page_execute' }
+        });
+
+        // Refresh message list
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('id, channel, status, subject, body, ai_generated, sent_at, opened_at, replied_at, created_at')
+          .eq('contact_id', contact.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        setMessages(msgs ?? []);
+      } catch (e) {
+        console.warn('Failed to log email message:', e);
+      }
+
+      await handleFollowupDone(fup.id);
+      toast.success('Email sent successfully!');
+
+    } else if (fup.channel === 'linkedin') {
+      const linkedin = contact.linkedin_url || contact.ai_structured?.linkedin;
+      if (!linkedin) {
+        toast.error('Contact has no LinkedIn URL');
+        return;
+      }
+
+      const formattedUrl = linkedin.startsWith('http') ? linkedin : `https://${linkedin}`;
+      const newWindow = window.open(formattedUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      // Log message
+      try {
+        await supabase.from('messages').insert({
+          tenant_id: contact.tenant_id || user?.user_metadata?.tenant_id || user?.id,
+          contact_id: contact.id,
+          sent_by: user?.id,
+          channel: 'linkedin',
+          status: 'sent',
+          body: 'LinkedIn profile opened for manual messaging',
+          ai_generated: false,
+          metadata: { sent_via: 'detail_page_execute' }
+        });
+        
+        // Refresh message list
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('id, channel, status, subject, body, ai_generated, sent_at, opened_at, replied_at, created_at')
+          .eq('contact_id', contact.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        setMessages(msgs ?? []);
+      } catch (e) {
+        console.warn('Failed to log LinkedIn message:', e);
+      }
+
+      await handleFollowupDone(fup.id);
+    }
+  };
+
+  // ── Direct Channel Actions (from header/sidebar buttons) ──────────────────
+  const handleDirectChannelAction = async (channel: 'whatsapp' | 'linkedin') => {
+    console.log('handleDirectChannelAction triggered. channel:', channel, 'contact:', contact);
+    if (!contact) return;
+
+    // Check if there is an existing pending follow-up for this channel
+    const pendingFup = followups.find(f => f.channel === channel && f.status === 'pending');
+    if (pendingFup) {
+      handleExecuteFollowup(pendingFup);
+      return;
+    }
+
+    // Otherwise, execute a direct send action
+    if (channel === 'whatsapp') {
+      if (!contact.phone) {
+        toast.error('Contact has no phone number');
+        return;
+      }
+      const cleanPhone = contact.phone.replace(/\D/g, '');
+      if (!cleanPhone) {
+        toast.error('Invalid phone number format');
+        return;
+      }
+
+      const waUrl = `https://wa.me/${cleanPhone}`;
+      const newWindow = window.open(waUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      // Increment count
+      try {
+        const count = contact.whatsapp_count || 0;
+        await supabase
+          .from('contacts')
+          .update({ whatsapp_count: count + 1 })
+          .eq('id', contact.id);
+        setContact(prev => prev ? { ...prev, whatsapp_count: count + 1 } : null);
+      } catch (e) {
+        console.warn('Failed to increment WhatsApp count:', e);
+      }
+
+      // Log message
+      try {
+        await supabase.from('messages').insert({
+          tenant_id: contact.tenant_id || user?.user_metadata?.tenant_id || user?.id,
+          contact_id: contact.id,
+          sent_by: user?.id,
+          channel: 'whatsapp',
+          status: 'sent',
+          body: 'Direct WhatsApp message initiated',
+          ai_generated: false,
+          metadata: { sent_via: 'detail_page_direct' }
+        });
+        
+        // Refresh message list
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('id, channel, status, subject, body, ai_generated, sent_at, opened_at, replied_at, created_at')
+          .eq('contact_id', contact.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        setMessages(msgs ?? []);
+      } catch (e) {
+        console.warn('Failed to log WhatsApp message:', e);
+      }
+
+      toast.success('WhatsApp opened!');
+
+    } else if (channel === 'linkedin') {
+      const linkedin = contact.linkedin_url || contact.ai_structured?.linkedin;
+      if (!linkedin) {
+        toast.error('Contact has no LinkedIn URL');
+        return;
+      }
+
+      const formattedUrl = linkedin.startsWith('http') ? linkedin : `https://${linkedin}`;
+      const newWindow = window.open(formattedUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      // Log message
+      try {
+        await supabase.from('messages').insert({
+          tenant_id: contact.tenant_id || user?.user_metadata?.tenant_id || user?.id,
+          contact_id: contact.id,
+          sent_by: user?.id,
+          channel: 'linkedin',
+          status: 'sent',
+          body: 'LinkedIn profile opened',
+          ai_generated: false,
+          metadata: { sent_via: 'detail_page_direct' }
+        });
+        
+        // Refresh message list
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('id, channel, status, subject, body, ai_generated, sent_at, opened_at, replied_at, created_at')
+          .eq('contact_id', contact.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        setMessages(msgs ?? []);
+      } catch (e) {
+        console.warn('Failed to log LinkedIn message:', e);
+      }
+
+      toast.success('LinkedIn profile opened!');
+    }
+  };
+
   // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) return (
     <div className="flex items-center justify-center py-32">
@@ -384,6 +682,22 @@ export function ContactDetailPage() {
               <a href={`mailto:${contact.email}`} className="btn-primary btn-sm flex items-center gap-2">
                 <Send size={13} /> Send Email
               </a>
+            )}
+            {contact.phone && (
+              <button
+                onClick={() => handleDirectChannelAction('whatsapp')}
+                className="btn-secondary btn-sm flex items-center gap-2 text-green-600 hover:bg-green-50/50"
+              >
+                <Phone size={13} /> WhatsApp Chat
+              </button>
+            )}
+            {(contact.linkedin_url || contact.ai_structured?.linkedin) && (
+              <button
+                onClick={() => handleDirectChannelAction('linkedin')}
+                className="btn-secondary btn-sm flex items-center gap-2 text-sky-600 hover:bg-sky-50/50"
+              >
+                <LinkedInIcon size={13} /> LinkedIn Profile
+              </button>
             )}
             <Link to={`/followups`} className="btn-secondary btn-sm flex items-center gap-2">
               <CalendarClock size={13} /> Schedule Follow-up
@@ -628,12 +942,33 @@ export function ContactDetailPage() {
                           <p className="text-xs text-gray-500 mt-1 truncate italic">"{fup.message_draft}"</p>
                         )}
                       </div>
-                      <button
-                        onClick={() => handleFollowupDone(fup.id)}
-                        className="btn-primary btn-sm shrink-0 flex items-center gap-1 text-[11px]"
-                      >
-                        <CheckCircle2 size={12} /> Done
-                      </button>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          onClick={() => handleExecuteFollowup(fup)}
+                          className="btn-primary btn-sm flex items-center gap-1 text-[11px]"
+                        >
+                          {fup.channel === 'whatsapp' ? (
+                            <>
+                              <Phone size={12} /> Send WhatsApp
+                            </>
+                          ) : fup.channel === 'linkedin' ? (
+                            <>
+                              <LinkedInIcon size={12} /> Open LinkedIn
+                            </>
+                          ) : (
+                            <>
+                              <Send size={12} /> Send Email
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleFollowupDone(fup.id)}
+                          className="btn-secondary btn-sm flex items-center gap-1 text-[11px]"
+                          title="Mark done without sending"
+                        >
+                          <CheckCircle2 size={12} /> Done
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -800,6 +1135,20 @@ export function ContactDetailPage() {
             </form>
           </div>
         </div>
+      )}
+      {previewFollowup && (
+        <MessageSendPreviewModal
+          isOpen={isPreviewOpen}
+          onClose={() => {
+            setIsPreviewOpen(false);
+            setPreviewFollowup(null);
+          }}
+          onConfirm={handleConfirmExecuteFollowup}
+          channel={previewChannel}
+          contactName={contact?.full_name || 'Unknown Contact'}
+          initialMessageText={previewInitialText}
+          initialEmailSubject={previewSubject}
+        />
       )}
     </div>
   );

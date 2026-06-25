@@ -171,6 +171,7 @@ export interface Database {
           email_count: number
           whatsapp_count: number
           sms_count: number
+          linkedin_count: number
           // Follow-up
           followup_status: string | null
           last_contacted_at: string | null

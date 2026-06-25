@@ -29,7 +29,10 @@ serve(async (req) => {
       // ── Integration: Resend Email Ingest ──────────────────
       const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || ''
       if (!RESEND_API_KEY) {
-        throw new Error('Missing RESEND_API_KEY env variable')
+        return new Response(
+          JSON.stringify({ error: 'Email sending not configured' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
       }
 
       const res = await fetch('https://api.resend.com/emails', {

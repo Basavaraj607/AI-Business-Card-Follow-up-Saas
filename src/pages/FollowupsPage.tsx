@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useFollowups, type FollowupFilter, type FollowupWithContact } from '../hooks/useFollowups';
+import { MessageSendPreviewModal } from '../components/MessageSendPreviewModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -371,12 +372,14 @@ interface FollowupCardProps {
   onDone:   (id: string) => void;
   onSkip:   (id: string) => void;
   onEdit:   (f: FollowupWithContact) => void;
+  onExecute: (f: FollowupWithContact) => Promise<void>;
 }
 
-function FollowupCard({ followup, onDone, onSkip, onEdit }: FollowupCardProps) {
+function FollowupCard({ followup, onDone, onSkip, onEdit, onExecute }: FollowupCardProps) {
   const [expanded,    setExpanded]    = useState(false);
   const [doneLoading, setDoneLoading] = useState(false);
   const [skipLoading, setSkipLoading] = useState(false);
+  const [executing,   setExecuting]   = useState(false);
 
   const meta    = CHANNEL_META[followup.channel] ?? CHANNEL_META.email;
   const Icon    = meta.icon;
@@ -394,6 +397,17 @@ function FollowupCard({ followup, onDone, onSkip, onEdit }: FollowupCardProps) {
     setSkipLoading(true);
     try { await onSkip(followup.id); }
     finally { setSkipLoading(false); }
+  };
+
+  const handleExecute = async () => {
+    setExecuting(true);
+    try {
+      await onExecute(followup);
+    } catch (err: any) {
+      toast.error(err.message || 'Execution failed');
+    } finally {
+      setExecuting(false);
+    }
   };
 
   return (
@@ -477,21 +491,53 @@ function FollowupCard({ followup, onDone, onSkip, onEdit }: FollowupCardProps) {
         </div>
 
         {/* Action Row */}
-        <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-50">
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-50">
+          {/* Channel-specific Execute Button */}
+          {followup.status === 'pending' && (
+            <button
+              onClick={handleExecute}
+              disabled={executing || doneLoading || skipLoading}
+              className="btn-primary btn-sm flex-1 flex items-center justify-center gap-1.5 min-w-[120px]"
+            >
+              {executing ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : followup.channel === 'whatsapp' ? (
+                <>
+                  <Phone size={13} />
+                  Send via WhatsApp
+                </>
+              ) : followup.channel === 'linkedin' ? (
+                <>
+                  <Link2 size={13} />
+                  Open LinkedIn
+                </>
+              ) : (
+                <>
+                  <Mail size={13} />
+                  Send Email
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Secondary manual Done Button */}
           <button
             onClick={handleDone}
-            disabled={doneLoading}
-            className="btn-primary btn-sm flex-1 flex items-center justify-center gap-1.5"
+            disabled={doneLoading || executing || skipLoading}
+            className="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+            title="Mark as done without sending"
           >
-            {doneLoading
-              ? <Loader2 size={13} className="animate-spin" />
-              : <CheckCircle2 size={13} />
-            }
+            {doneLoading ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <CheckCircle2 size={13} />
+            )}
             Done
           </button>
 
           <button
             onClick={() => onEdit(followup)}
+            disabled={executing || doneLoading || skipLoading}
             className="btn-secondary btn-sm flex items-center gap-1.5"
           >
             <Pencil size={13} />
@@ -500,13 +546,14 @@ function FollowupCard({ followup, onDone, onSkip, onEdit }: FollowupCardProps) {
 
           <button
             onClick={handleSkip}
-            disabled={skipLoading}
-            className="btn-ghost btn-sm flex items-center gap-1.5 text-gray-400 hover:text-gray-600"
+            disabled={skipLoading || executing || doneLoading}
+            className="btn-ghost btn-sm flex items-center gap-1.5 text-gray-400 hover:text-gray-600 ml-auto"
           >
-            {skipLoading
-              ? <Loader2 size={13} className="animate-spin" />
-              : <SkipForward size={13} />
-            }
+            {skipLoading ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <SkipForward size={13} />
+            )}
             Skip
           </button>
         </div>
@@ -661,6 +708,10 @@ export function FollowupsPage() {
   const [selectedDate,  setSelectedDate]  = useState<string | null>(null);
   const [showSchedule,  setShowSchedule]  = useState(false);
   const [editingFollowup, setEditingFollowup] = useState<FollowupWithContact | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewFollowup, setPreviewFollowup] = useState<FollowupWithContact | null>(null);
+  const [previewInitialText, setPreviewInitialText] = useState('');
+  const [previewSubject, setPreviewSubject] = useState('');
 
   const handleFilterChange = (filter: FollowupFilter) => {
     setActiveFilter(filter);
@@ -691,6 +742,167 @@ export function FollowupsPage() {
 
   const handleUpdateDraft = async (id: string, draft: string, subject?: string) => {
     await updateDraft(id, draft, subject);
+  };
+
+  const handleExecute = async (followup: FollowupWithContact) => {
+    console.log('handleExecute triggered. followup:', followup);
+    const contact = followup.contact;
+    if (!contact) {
+      toast.error('Contact information is missing');
+      return;
+    }
+
+    setPreviewFollowup(followup);
+    setPreviewInitialText(followup.message_draft || followup.ai_suggestion || '');
+    setPreviewSubject(followup.subject_draft || 'Follow-up');
+    setIsPreviewOpen(true);
+  };
+
+  const handleConfirmExecute = async (editedText: string, editedSubject?: string) => {
+    console.log('handleConfirmExecute triggered. editedText:', editedText, 'editedSubject:', editedSubject);
+    if (!previewFollowup) return;
+    const followup = previewFollowup;
+    const contact = followup.contact;
+    if (!contact) return;
+
+    const body = editedText;
+    const subject = editedSubject || followup.subject_draft || 'Follow-up';
+
+    if (followup.channel === 'whatsapp') {
+      if (!contact.phone) {
+        toast.error('Contact has no phone number');
+        return;
+      }
+      const cleanPhone = contact.phone.replace(/\D/g, '');
+      if (!cleanPhone) {
+        toast.error('Invalid phone number format');
+        return;
+      }
+
+      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(body)}`;
+      const newWindow = window.open(waUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      try {
+        const count = contact.whatsapp_count || 0;
+        const supabaseClient = createClient();
+        await supabaseClient
+          .from('contacts')
+          .update({ whatsapp_count: count + 1 })
+          .eq('id', contact.id);
+      } catch (e) {
+        console.warn('Failed to increment WhatsApp count:', e);
+      }
+
+      try {
+        const supabaseClient = createClient();
+        const { data: { user: currentUser } } = await supabaseClient.auth.getUser();
+        await supabaseClient.from('messages').insert({
+          tenant_id: followup.tenant_id,
+          contact_id: contact.id,
+          sent_by: currentUser?.id || followup.assigned_to,
+          channel: 'whatsapp',
+          status: 'sent',
+          body,
+          ai_generated: !!followup.ai_suggestion,
+          metadata: { sent_via: 'scheduler_execute' }
+        });
+      } catch (e) {
+        console.warn('Failed to log WhatsApp message:', e);
+      }
+
+      await markDone(followup.id);
+      fetchDayCounts();
+      toast.success('WhatsApp opened and task marked done!');
+
+    } else if (followup.channel === 'email') {
+      if (!contact.email) {
+        toast.error('Contact has no email address');
+        return;
+      }
+
+      const supabaseClient = createClient();
+      const { error: invokeError } = await supabaseClient.functions.invoke('send-communication', {
+        body: {
+          channel: 'email',
+          to: contact.email,
+          subject,
+          body
+        }
+      });
+
+      if (invokeError) {
+        toast.error(invokeError.message || 'Failed to send email');
+        throw new Error(invokeError.message || 'Failed to send email');
+      }
+
+      try {
+        const count = contact.email_count || 0;
+        await supabaseClient
+          .from('contacts')
+          .update({ email_count: count + 1 })
+          .eq('id', contact.id);
+      } catch (e) {
+        console.warn('Failed to increment email count:', e);
+      }
+
+      try {
+        const { data: { user: currentUser } } = await supabaseClient.auth.getUser();
+        await supabaseClient.from('messages').insert({
+          tenant_id: followup.tenant_id,
+          contact_id: contact.id,
+          sent_by: currentUser?.id || followup.assigned_to,
+          channel: 'email',
+          status: 'sent',
+          subject,
+          body,
+          ai_generated: !!followup.ai_suggestion,
+          metadata: { sent_via: 'scheduler_execute' }
+        });
+      } catch (e) {
+        console.warn('Failed to log email message:', e);
+      }
+
+      await markDone(followup.id);
+      fetchDayCounts();
+      toast.success('Email sent successfully!');
+
+    } else if (followup.channel === 'linkedin') {
+      const linkedin = contact.linkedin_url || (contact as any).ai_structured?.linkedin;
+      if (!linkedin) {
+        toast.error('Contact has no LinkedIn URL');
+        return;
+      }
+
+      const formattedUrl = linkedin.startsWith('http') ? linkedin : `https://${linkedin}`;
+      const newWindow = window.open(formattedUrl, '_blank');
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        toast.error('Popup was blocked by your browser. Please allow popups for this site.');
+      }
+
+      try {
+        const supabaseClient = createClient();
+        const { data: { user: currentUser } } = await supabaseClient.auth.getUser();
+        await supabaseClient.from('messages').insert({
+          tenant_id: followup.tenant_id,
+          contact_id: contact.id,
+          sent_by: currentUser?.id || followup.assigned_to,
+          channel: 'linkedin',
+          status: 'sent',
+          body: 'LinkedIn profile opened for manual messaging',
+          ai_generated: false,
+          metadata: { sent_via: 'scheduler_execute' }
+        });
+      } catch (e) {
+        console.warn('Failed to log LinkedIn message:', e);
+      }
+
+      await markDone(followup.id);
+      fetchDayCounts();
+      toast.success('LinkedIn profile opened and logged!');
+    }
   };
 
   return (
@@ -800,6 +1012,7 @@ export function FollowupsPage() {
               onDone={handleDone}
               onSkip={handleSkip}
               onEdit={setEditingFollowup}
+              onExecute={handleExecute}
             />
           ))}
         </div>
@@ -818,6 +1031,20 @@ export function FollowupsPage() {
           followup={editingFollowup}
           onClose={() => setEditingFollowup(null)}
           onSave={handleUpdateDraft}
+        />
+      )}
+      {previewFollowup && (
+        <MessageSendPreviewModal
+          isOpen={isPreviewOpen}
+          onClose={() => {
+            setIsPreviewOpen(false);
+            setPreviewFollowup(null);
+          }}
+          onConfirm={handleConfirmExecute}
+          channel={previewFollowup.channel as 'whatsapp' | 'email' | 'linkedin'}
+          contactName={previewFollowup.contact?.full_name || 'Unknown Contact'}
+          initialMessageText={previewInitialText}
+          initialEmailSubject={previewSubject}
         />
       )}
     </div>

@@ -185,6 +185,9 @@ export function AuthProvider({
     if (!user) return
 
     const ensureRecords = async () => {
+      // Skip ensuring database records for mock users since they will fail RLS
+      if (sessionStorage.getItem('mock_user')) return
+
       try {
         // Check if profile already exists first
         const { data: existingProfile, error: checkError } = await supabase
@@ -318,29 +321,8 @@ export function AuthProvider({
     setSession({ user: u } as any)
     setLoading(false)
 
-    // Provision mock workspace & profile in live database to satisfy constraints
-    try {
-      const emailSlug = mockEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-') || 'workspace'
-      await (supabase.from('tenants').insert({
-        id: mockId,
-        name: `${mockEmail.split('@')[0]}'s Workspace`,
-        slug: `${emailSlug}-workspace`,
-        plan: 'free',
-        owner_id: mockId,
-        settings: {}
-      } as any) as any);
-      
-      await (supabase.from('profiles').insert({
-        id: mockId,
-        tenant_id: mockId,
-        full_name: mockEmail.split('@')[0],
-        role: 'owner',
-        email: mockEmail
-      } as any) as any);
-      console.log('Mock credentials successfully provisioned in live database.');
-    } catch (err) {
-      console.warn('Could not provision mock credentials in live database (offline mode):', err);
-    }
+    // Database provisioning is skipped for mock users because RLS blocks anonymous client-side writes
+    console.log('Mock login initialized (local state only).');
   }
 
   const signUpWithPassword = async (email: string, password: string, first_name: string, last_name: string, phone: string, company: string) => {

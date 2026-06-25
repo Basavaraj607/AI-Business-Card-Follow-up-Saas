@@ -288,6 +288,7 @@ create table if not exists contacts (
   email_count int not null default 0,
   whatsapp_count int not null default 0,
   sms_count int not null default 0,
+  linkedin_count int not null default 0,
 
   -- Follow-up
   followup_status text default 'pending',

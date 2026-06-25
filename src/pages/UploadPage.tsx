@@ -129,15 +129,30 @@ export function UploadPage() {
         }
 
         dbContactId = contactRecord.id;
+        
+        const isFallbackName = !contactRecord.full_name || contactRecord.full_name === 'Scanned Contact';
+        const isInfoMissing = !contactRecord.email && !contactRecord.phone && !contactRecord.role;
+        
+        let localParsed = null;
+        if (isFallbackName || isInfoMissing) {
+          try {
+            localParsed = await parseCardText(text);
+          } catch (pe) {
+            console.warn('Local regex parsing fallback failed:', pe);
+          }
+        }
+
         parsedData = {
           id: contactRecord.id,
-          name: contactRecord.full_name || '',
-          email: contactRecord.email || '',
-          phone: contactRecord.phone || '',
-          company: contactRecord.ai_structured?.company || contactRecord.company_id || '',
-          title: contactRecord.role || '',
-          website: contactRecord.ai_structured?.website || '',
-          linkedin: contactRecord.ai_structured?.linkedin || contactRecord.linkedin_url || '',
+          name: contactRecord.full_name && contactRecord.full_name !== 'Scanned Contact'
+            ? contactRecord.full_name 
+            : (localParsed?.name || contactRecord.full_name || 'Scanned Contact'),
+          email: contactRecord.email || localParsed?.email || '',
+          phone: contactRecord.phone || localParsed?.phone || '',
+          company: contactRecord.ai_structured?.company || localParsed?.company || '',
+          title: contactRecord.role || localParsed?.title || '',
+          website: contactRecord.ai_structured?.website || localParsed?.website || '',
+          linkedin: contactRecord.ai_structured?.linkedin || contactRecord.linkedin_url || localParsed?.linkedin || '',
           notes: contactRecord.context_notes || '',
           lead_status: contactRecord.lead_status || 'warm',
         };
